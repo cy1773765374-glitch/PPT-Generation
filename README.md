@@ -1,14 +1,14 @@
-# workspace-PPT-Generation v1.2
+# workspace-PPT-Generation v1.3
 
 ## 版本定位
 
-v1.2 是基于 v1.1 的修正版，重点解决：
+v1.3 是针对 v1.2 线上测试失败的修正版，重点解决：
 
-1. 飞书回复太啰嗦：现在只回复 `Z:\...pptx` 本地映射盘路径。
-2. 文件名时间错误/不清楚：现在固定 `Asia/Shanghai`，格式为 `YYYY-MM-DD-HH时MM分-用户询问的问题`。
-3. PPT 只有文字：现在生产默认调用 MiniMax `image-01` 生图，并把封面图、商品图插入 PPT。
-4. 避免纯文字退化：默认 `PPT_REQUIRE_IMAGES=1`，MiniMax 不可用就失败，不继续生成干巴巴的文字版。
-5. 输出结构保持：PPT 文件直接放在任务目录一级，不再进入 `project/exports/`。
+1. **MiniMax 生图域名错误**：自动把旧环境里的 `https://api.minimax.com/v1/image_generation` 修正为官方 `https://api.minimax.io/v1/image_generation`。
+2. **失败时找不到原因**：生图失败时不会生成伪 PPT，但会在任务目录下写入 `ERROR.txt`，方便排查。
+3. **飞书成功回复仍保持一行路径**：成功后仍只回复 `Z:\...pptx`，不回复服务器路径、页数、耗时。
+4. **PPT 必须有图**：生产默认 `PPT_IMAGE_MODE=minimax`、`PPT_REQUIRE_IMAGES=1`，MiniMax 不可用就失败，不退化成纯文字 PPT。
+5. **兼容旧入口**：如果 Feishu/OpenClaw 旧配置仍调用 `scripts/generate_catalog_ppt_v12.py`，会自动转到 v1.3 实现。
 
 ---
 
@@ -17,7 +17,7 @@ v1.2 是基于 v1.1 的修正版，重点解决：
 ```bash
 mkdir -p ~/.openclaw/workspace-PPT-Generation
 
-tar -xzvf workspace-PPT-Generation-v1.2.tar.gz \
+tar -xzvf workspace-PPT-Generation-v1.3.tar.gz \
   -C ~/.openclaw/workspace-PPT-Generation \
   --strip-components=1
 ```
@@ -34,7 +34,7 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-编辑 `.env`：
+编辑 `.env`，重点确认：
 
 ```bash
 PPT_CATALOG_ROOT=/data/share/yaq/ppt/catalog
@@ -43,9 +43,29 @@ PPT_TIMEZONE=Asia/Shanghai
 PPT_IMAGE_MODE=minimax
 PPT_REQUIRE_IMAGES=1
 MINIMAX_API_KEY=你的 MiniMax API Key
+MINIMAX_IMAGE_API_URL=https://api.minimax.io/v1/image_generation
+MINIMAX_NETWORK_PRECHECK=1
 ```
 
 如果你已经在 `~/.openclaw/openclaw.json` 配了 MiniMax key，也可以不写 `MINIMAX_API_KEY`，脚本会尝试自动读取。
+
+---
+
+## 先做 MiniMax 接口预检
+
+只检查 key + 域名解析：
+
+```bash
+python scripts/check_minimax_image_api.py
+```
+
+执行一次真实生图请求：
+
+```bash
+python scripts/check_minimax_image_api.py --live --out /tmp/check_minimax.png
+```
+
+如果这里失败，说明不是 PPT 代码问题，而是服务器到 MiniMax 图像接口的 DNS、代理、网络或 API Key 问题。
 
 ---
 
@@ -55,7 +75,7 @@ MINIMAX_API_KEY=你的 MiniMax API Key
 cd ~/.openclaw/workspace-PPT-Generation
 source .venv/bin/activate
 
-python scripts/generate_catalog_ppt_v12.py \
+python scripts/generate_catalog_ppt_v13.py \
   --prompt "生成一个厨房餐具相关的3页的商品目录册PPT" \
   --sender-name "陈玉" \
   --sender-open-id "ou_6e056040c28331827575c0061644569c" \
@@ -70,7 +90,7 @@ python scripts/generate_catalog_ppt_v12.py \
   "page_count": 3,
   "image_mode": "minimax",
   "image_count": 5,
-  "reply_text": "Z:\\yaq\\ppt\\catalog\\2026-05-25-16时35分-生成一个厨房餐具相关的3页的商品目录册PPT\\2026-05-25-16时35分-生成一个厨房餐具相关的3页的商品目录册PPT.pptx"
+  "reply_text": "Z:\\yaq\\ppt\\catalog\\2026-05-25-18时32分-生成一个厨房餐具相关的3页的商品目录册PPT\\2026-05-25-18时32分-生成一个厨房餐具相关的3页的商品目录册PPT.pptx"
 }
 ```
 
@@ -78,27 +98,27 @@ python scripts/generate_catalog_ppt_v12.py \
 
 ---
 
-## 离线连通性测试
+## 飞书回复格式
 
-无 MiniMax key 时可以只验证 PPT 布局：
+成功时只回复一行：
+
+```text
+Z:\yaq\ppt\catalog\2026-05-25-18时32分-生成一个厨房餐具相关的3页的商品目录册PPT\2026-05-25-18时32分-生成一个厨房餐具相关的3页的商品目录册PPT.pptx
+```
+
+不要再回复服务器路径、页数、耗时。
+
+---
+
+## 离线布局测试
+
+仅用于确认 PPT 布局，不用于飞书生产：
 
 ```bash
-PPT_IMAGE_MODE=placeholder python scripts/generate_catalog_ppt_v12.py \
+PPT_IMAGE_MODE=placeholder python scripts/generate_catalog_ppt_v13.py \
   --prompt "生成一个厨房餐具相关的3页的商品目录册PPT" \
   --root /tmp/ppt_catalog_test \
   --json
 ```
 
-注意：`placeholder` 只用于本地测试，不用于飞书生产。
-
----
-
-## 飞书回复格式
-
-v1.2 成功时只回复：
-
-```text
-Z:\yaq\ppt\catalog\2026-05-25-16时35分-生成一个厨房餐具相关的3页的商品目录册PPT\2026-05-25-16时35分-生成一个厨房餐具相关的3页的商品目录册PPT.pptx
-```
-
-不要再回复服务器路径、页数、耗时。
+生产环境不要把 `PPT_IMAGE_MODE` 改成 `placeholder`，否则就不是 MiniMax 生图版本。

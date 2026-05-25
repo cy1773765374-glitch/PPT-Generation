@@ -1,9 +1,9 @@
-# 工具说明：PPT 商品目录册 v1.2
+# 工具说明：PPT 商品目录册 v1.3
 
 ## 主脚本
 
 ```text
-scripts/generate_catalog_ppt_v12.py
+scripts/generate_catalog_ppt_v13.py
 ```
 
 作用：
@@ -18,7 +18,7 @@ scripts/generate_catalog_ppt_v12.py
 ## 常用参数
 
 ```bash
-python scripts/generate_catalog_ppt_v12.py \
+python scripts/generate_catalog_ppt_v13.py \
   --prompt "生成一个厨房餐具相关的3页的商品目录册PPT" \
   --sender-name "陈玉" \
   --sender-open-id "ou_xxx" \
@@ -57,7 +57,7 @@ python scripts/generate_catalog_ppt_v12.py \
 ## 飞书 formatter
 
 ```bash
-python scripts/generate_catalog_ppt_v12.py --prompt "$USER_TEXT" --json \
+python scripts/generate_catalog_ppt_v13.py --prompt "$USER_TEXT" --json \
   | python scripts/feishu_reply_formatter.py
 ```
 
@@ -81,3 +81,23 @@ Agent 收到失败结果时，不要回复“已完成”，应回复：
 ```text
 PPT 生成失败：错误信息
 ```
+
+
+## MiniMax 预检脚本
+
+```bash
+python scripts/check_minimax_image_api.py
+python scripts/check_minimax_image_api.py --live --out /tmp/check_minimax.png
+```
+
+作用：检查 `MINIMAX_API_KEY`、官方图像接口 `https://api.minimax.io/v1/image_generation`、DNS 解析和可选真实生图。
+
+## 兼容入口
+
+旧集成仍可调用：
+
+```bash
+python scripts/generate_catalog_ppt_v12.py --prompt "$USER_TEXT" --json
+```
+
+该文件在 v1.3 中只是兼容 wrapper，会转到 `generate_catalog_ppt_v13.py`。

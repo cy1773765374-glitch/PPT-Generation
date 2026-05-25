@@ -1,4 +1,20 @@
-# 飞书接入说明 v1.2
+# 飞书接入说明 v1.3
+
+## 预检 MiniMax
+
+部署后先执行：
+
+```bash
+python scripts/check_minimax_image_api.py
+```
+
+如果要真实验证生图：
+
+```bash
+python scripts/check_minimax_image_api.py --live --out /tmp/check_minimax.png
+```
+
+只有这里通过后，飞书触发才会真正生成带图 PPT。
 
 ## 目标
 
@@ -11,7 +27,7 @@
 Agent 调用：
 
 ```bash
-python scripts/generate_catalog_ppt_v12.py \
+python scripts/generate_catalog_ppt_v13.py \
   --prompt "生成一个厨房餐具相关的3页的商品目录册PPT" \
   --sender-name "陈玉" \
   --sender-open-id "ou_xxx" \
@@ -21,11 +37,11 @@ python scripts/generate_catalog_ppt_v12.py \
 然后把 JSON 交给 formatter：
 
 ```bash
-python scripts/generate_catalog_ppt_v12.py --prompt "$USER_TEXT" --json \
+python scripts/generate_catalog_ppt_v13.py --prompt "$USER_TEXT" --json \
   | python scripts/feishu_reply_formatter.py
 ```
 
-## v1.2 飞书回复规则
+## v1.3 飞书回复规则
 
 成功时只回复一行本地路径：
 
@@ -52,6 +68,7 @@ PPT_IMAGE_MODE=minimax
 PPT_REQUIRE_IMAGES=1
 MINIMAX_API_KEY=你的 MiniMax API Key
 MINIMAX_IMAGE_API_URL=https://api.minimax.io/v1/image_generation
+MINIMAX_NETWORK_PRECHECK=1
 MINIMAX_IMAGE_MODEL=image-01
 ```
 

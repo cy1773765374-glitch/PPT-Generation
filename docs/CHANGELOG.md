@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## v1.3
+
+- 修复 v1.2 线上实际请求 `api.minimax.com` 导致 DNS 失败的问题。v1.3 自动将旧配置中的 `api.minimax.com` 修正为官方 `api.minimax.io`。
+- 新增 `scripts/check_minimax_image_api.py`，用于检查 MiniMax API Key、接口域名、DNS 和可选真实生图。
+- 生图失败时不生成伪 PPT，但会创建任务目录并写入 `ERROR.txt`，方便从 `/data/share/yaq/ppt/catalog/` 定位失败原因。
+- 继续保持成功回复只输出一行 Windows/Samba 本地路径。
+- 保留 `scripts/generate_catalog_ppt_v12.py` 作为兼容 wrapper，旧 OpenClaw/飞书配置无需立即改入口。
+
 ## v1.2
 
 - 飞书回复改为只返回 Windows/Samba 本地路径，例如：
