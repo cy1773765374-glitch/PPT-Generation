@@ -1,4 +1,1 @@
-workspace-PPT-Generation v1.0
-
-目标：OpenClaw + 官方飞书插件 + MiniMax + PPT-master 的 PPT 生成工作区。
-第一版重点：飞书文字/图片触发，生成结果保存到 /data/share/yaq/ppt，飞书只回复保存路径。
+workspace-PPT-Generation v1.1

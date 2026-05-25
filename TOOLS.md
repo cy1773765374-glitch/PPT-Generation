@@ -1,41 +1,66 @@
-# Tools for workspace-PPT-Generation
+# 工具说明：PPT 商品目录册 v1.1
 
-## 核心命令
-
-```bash
-python scripts/run_ppt_generation.py --user cy --text "根据描述生成商品目录册PPT：..."
-```
-
-可带多张图片：
-
-```bash
-python scripts/run_ppt_generation.py   --user cy   --text "根据图片做商品目录册"   --image /path/to/1.jpg   --image /path/to/2.png
-```
-
-## 输出
-
-脚本标准输出中包含：
+## 主脚本
 
 ```text
-RUN_DIR=...
-PPTX_PATH=...
-REPLY_TEXT=...
+scripts/generate_catalog_ppt_v11.py
 ```
 
-飞书 Agent 只需要把 `REPLY_TEXT` 发回用户。
+作用：
 
-## 环境变量
+1. 解析飞书用户输入。
+2. 识别目录册主题、页数、商品类目。
+3. 生成任务目录。
+4. 生成 PPTX。
+5. 输出 JSON 结果，供 OpenClaw Agent 回复飞书。
 
-| 变量 | 默认值 | 说明 |
-|---|---|---|
-| PPT_OUTPUT_ROOT | /data/share/yaq/ppt | 最终输出根目录 |
-| PPT_GENERATION_MODE | auto | auto/catalog/general |
-| PPT_MASTER_DIR | vendor/ppt-master | 原版 PPT-master 目录 |
-| PPT_ALLOW_FALLBACK | true | 原版 PPT-master 不存在时是否启用 lite fallback |
-| TZ | Asia/Shanghai | 运行目录时间命名 |
-
-## 可选安装上游 PPT-master
+## 常用参数
 
 ```bash
-bash scripts/install_upstream_ppt_master.sh
+python scripts/generate_catalog_ppt_v11.py \
+  --prompt "生成一个厨房餐具相关的3页的商品目录册PPT" \
+  --sender-name "陈玉" \
+  --sender-open-id "ou_xxx" \
+  --json
+```
+
+### 参数说明
+
+| 参数 | 必填 | 说明 |
+|---|---:|---|
+| `--prompt` | 是 | 飞书用户原始问题 |
+| `--sender-name` | 否 | 发送人姓名，用于元数据 |
+| `--sender-open-id` | 否 | 发送人 open_id，用于元数据 |
+| `--root` | 否 | 输出根目录，不填则读 `PPT_CATALOG_ROOT` |
+| `--json` | 否 | 使用 JSON 格式输出，推荐开启 |
+
+## 输出 JSON 字段
+
+```json
+{
+  "ok": true,
+  "prompt": "生成一个厨房餐具相关的3页的商品目录册PPT",
+  "category": "厨房餐具",
+  "page_count": 3,
+  "run_name": "2026-05-25-1632-生成一个厨房餐具相关的3页的商品目录册PPT",
+  "run_dir": "/data/share/yaq/ppt/catalog/2026-05-25-1632-生成一个厨房餐具相关的3页的商品目录册PPT",
+  "pptx_path": "/data/share/yaq/ppt/catalog/.../...pptx",
+  "windows_path": "Z:\\yaq\\ppt\\catalog\\...\\...pptx",
+  "elapsed_seconds": 13.1
+}
+```
+
+## 失败时输出
+
+```json
+{
+  "ok": false,
+  "error": "错误信息"
+}
+```
+
+Agent 收到失败结果时，不要回复“已完成”，应回复：
+
+```text
+PPT 生成失败：错误信息
 ```
