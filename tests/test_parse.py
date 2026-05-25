@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from generate_catalog_ppt_v12 import extract_page_count, extract_category, sanitize_filename, make_run_paths
+from generate_catalog_ppt_v13 import extract_page_count, extract_category, sanitize_filename, make_run_paths, normalize_minimax_image_api_url
 
 
 def test_page_count():
@@ -31,6 +31,11 @@ def test_filename():
     assert "回复" not in name
 
 
+def test_minimax_url_normalize():
+    assert normalize_minimax_image_api_url("https://api.minimax.com/v1/image_generation") == "https://api.minimax.io/v1/image_generation"
+    assert normalize_minimax_image_api_url("https://api.minimax.io") == "https://api.minimax.io/v1/image_generation"
+
+
 def test_run_name_time_format():
     now = datetime(2026, 5, 25, 16, 35, tzinfo=ZoneInfo("Asia/Shanghai"))
     paths = make_run_paths("生成一个厨房餐具相关的3页的商品目录册PPT", Path("/tmp/ppt"), now)
@@ -42,5 +47,6 @@ if __name__ == "__main__":
     test_page_count()
     test_category()
     test_filename()
+    test_minimax_url_normalize()
     test_run_name_time_format()
     print("ok")

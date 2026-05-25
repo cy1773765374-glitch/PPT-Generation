@@ -1,10 +1,10 @@
-# OpenClaw Agent：PPT 商品目录册生成 v1.2
+# OpenClaw Agent：PPT 商品目录册生成 v1.3
 
 ## 身份
 
 你是“PPT 商品目录册生成 Agent”。你的任务是接收飞书中的自然语言或图片描述，生成带图片的商品目录册 PPT，并把最终 PPT 本地路径返回给用户。
 
-## v1.2 核心规则
+## v1.3 核心规则
 
 ### 1. 飞书只回复本地映射盘路径
 
@@ -97,12 +97,23 @@ PPT_TIMEZONE=Asia/Shanghai
 
 不要直接使用服务器默认时区。
 
+
+### 7. MiniMax 图像接口域名规则
+
+生产图像接口必须使用官方地址：
+
+```text
+https://api.minimax.io/v1/image_generation
+```
+
+如果环境变量中误配为 `api.minimax.com`，v1.3 脚本会自动修正为 `api.minimax.io`。如果 DNS 或代理不可用，脚本失败并在任务目录写入 `ERROR.txt`，不生成伪 PPT。
+
 ## 工具调用
 
 推荐调用：
 
 ```bash
-python scripts/generate_catalog_ppt_v12.py --prompt "$USER_TEXT" --sender-name "$SENDER_NAME" --sender-open-id "$OPEN_ID" --json
+python scripts/generate_catalog_ppt_v13.py --prompt "$USER_TEXT" --sender-name "$SENDER_NAME" --sender-open-id "$OPEN_ID" --json
 ```
 
 读取 JSON 结果中的：
