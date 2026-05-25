@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from generate_catalog_ppt_v13 import extract_page_count, extract_category, sanitize_filename, make_run_paths, normalize_minimax_image_api_url
+from generate_catalog_ppt_v14 import extract_page_count, extract_category, sanitize_filename, make_run_paths, normalize_minimax_image_api_url
 
 
 def test_page_count():
@@ -32,8 +32,9 @@ def test_filename():
 
 
 def test_minimax_url_normalize():
-    assert normalize_minimax_image_api_url("https://api.minimax.com/v1/image_generation") == "https://api.minimax.io/v1/image_generation"
-    assert normalize_minimax_image_api_url("https://api.minimax.io") == "https://api.minimax.io/v1/image_generation"
+    assert normalize_minimax_image_api_url("https://api.minimax.com/v1/image_generation") == "https://api.minimax.com/v1/image_generation"
+    assert normalize_minimax_image_api_url("https://api.minimax.com") == "https://api.minimax.com/v1/image_generation"
+    assert normalize_minimax_image_api_url("api.minimax.com") == "https://api.minimax.com/v1/image_generation"
 
 
 def test_run_name_time_format():

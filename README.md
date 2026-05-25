@@ -1,14 +1,14 @@
-# workspace-PPT-Generation v1.3
+# workspace-PPT-Generation v1.4
 
 ## 版本定位
 
-v1.3 是针对 v1.2 线上测试失败的修正版，重点解决：
+v1.4 是针对 v1.2 线上测试失败的修正版，重点解决：
 
-1. **MiniMax 生图域名错误**：自动把旧环境里的 `https://api.minimax.com/v1/image_generation` 修正为官方 `https://api.minimax.io/v1/image_generation`。
+1. **MiniMax 生图域名策略**：默认使用 `https://api.minimax.com/v1/image_generation`，不再自动改写域名。
 2. **失败时找不到原因**：生图失败时不会生成伪 PPT，但会在任务目录下写入 `ERROR.txt`，方便排查。
 3. **飞书成功回复仍保持一行路径**：成功后仍只回复 `Z:\...pptx`，不回复服务器路径、页数、耗时。
 4. **PPT 必须有图**：生产默认 `PPT_IMAGE_MODE=minimax`、`PPT_REQUIRE_IMAGES=1`，MiniMax 不可用就失败，不退化成纯文字 PPT。
-5. **兼容旧入口**：如果 Feishu/OpenClaw 旧配置仍调用 `scripts/generate_catalog_ppt_v12.py`，会自动转到 v1.3 实现。
+5. **兼容旧入口**：如果 Feishu/OpenClaw 旧配置仍调用 `scripts/generate_catalog_ppt_v12.py`，会自动转到 v1.4 实现。
 
 ---
 
@@ -17,7 +17,7 @@ v1.3 是针对 v1.2 线上测试失败的修正版，重点解决：
 ```bash
 mkdir -p ~/.openclaw/workspace-PPT-Generation
 
-tar -xzvf workspace-PPT-Generation-v1.3.tar.gz \
+tar -xzvf workspace-PPT-Generation-v1.4.tar.gz \
   -C ~/.openclaw/workspace-PPT-Generation \
   --strip-components=1
 ```
@@ -43,8 +43,8 @@ PPT_TIMEZONE=Asia/Shanghai
 PPT_IMAGE_MODE=minimax
 PPT_REQUIRE_IMAGES=1
 MINIMAX_API_KEY=你的 MiniMax API Key
-MINIMAX_IMAGE_API_URL=https://api.minimax.io/v1/image_generation
-MINIMAX_NETWORK_PRECHECK=1
+MINIMAX_IMAGE_API_URL=https://api.minimax.com/v1/image_generation
+MINIMAX_NETWORK_PRECHECK=0
 ```
 
 如果你已经在 `~/.openclaw/openclaw.json` 配了 MiniMax key，也可以不写 `MINIMAX_API_KEY`，脚本会尝试自动读取。

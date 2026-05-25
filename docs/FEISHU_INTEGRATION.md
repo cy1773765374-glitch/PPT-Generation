@@ -1,4 +1,4 @@
-# 飞书接入说明 v1.3
+# 飞书接入说明 v1.4
 
 ## 预检 MiniMax
 
@@ -41,7 +41,7 @@ python scripts/generate_catalog_ppt_v13.py --prompt "$USER_TEXT" --json \
   | python scripts/feishu_reply_formatter.py
 ```
 
-## v1.3 飞书回复规则
+## v1.4 飞书回复规则
 
 成功时只回复一行本地路径：
 
@@ -67,8 +67,8 @@ Z:\yaq\ppt\catalog\2026-05-25-16时35分-生成一个厨房餐具相关的3页�
 PPT_IMAGE_MODE=minimax
 PPT_REQUIRE_IMAGES=1
 MINIMAX_API_KEY=你的 MiniMax API Key
-MINIMAX_IMAGE_API_URL=https://api.minimax.io/v1/image_generation
-MINIMAX_NETWORK_PRECHECK=1
+MINIMAX_IMAGE_API_URL=https://api.minimax.com/v1/image_generation
+MINIMAX_NETWORK_PRECHECK=0
 MINIMAX_IMAGE_MODEL=image-01
 ```
 
