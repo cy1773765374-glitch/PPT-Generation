@@ -1,4 +1,4 @@
-# 飞书接入说明 v1.1
+# 飞书接入说明 v1.2
 
 ## 目标
 
@@ -8,46 +8,93 @@
 生成一个厨房餐具相关的3页的商品目录册PPT
 ```
 
-Agent 应调用：
+Agent 调用：
 
 ```bash
-python scripts/generate_catalog_ppt_v11.py \
+python scripts/generate_catalog_ppt_v12.py \
   --prompt "生成一个厨房餐具相关的3页的商品目录册PPT" \
   --sender-name "陈玉" \
-  --sender-open-id "ou_6e056040c28331827575c0061644569c" \
+  --sender-open-id "ou_xxx" \
   --json
 ```
 
-然后从 JSON 中读取结果，并回复飞书。
+然后把 JSON 交给 formatter：
 
----
+```bash
+python scripts/generate_catalog_ppt_v12.py --prompt "$USER_TEXT" --json \
+  | python scripts/feishu_reply_formatter.py
+```
 
-## Agent 回复逻辑
+## v1.2 飞书回复规则
 
-### 成功
+成功时只回复一行本地路径：
+
+```text
+Z:\yaq\ppt\catalog\2026-05-25-16时35分-生成一个厨房餐具相关的3页的商品目录册PPT\2026-05-25-16时35分-生成一个厨房餐具相关的3页的商品目录册PPT.pptx
+```
+
+不要回复：
 
 ```text
 已完成，PPT 文件：
-Z:\yaq\ppt\catalog\2026-05-25-1632-生成一个厨房餐具相关的3页的商品目录册PPT\2026-05-25-1632-生成一个厨房餐具相关的3页的商品目录册PPT.pptx
-
 服务器路径：
-/data/share/yaq/ppt/catalog/2026-05-25-1632-生成一个厨房餐具相关的3页的商品目录册PPT/2026-05-25-1632-生成一个厨房餐具相关的3页的商品目录册PPT.pptx
-
-已完成 · 3页 · 耗时 13.1s
+已完成 · 3页 · 耗时 12.6s
 ```
 
-### 失败
+原因：OpenClaw/飞书外层可能已经有耗时提示，脚本再回复会导致内容重复、显得很乱。
+
+## MiniMax 生图规则
+
+生产环境 `.env` 使用：
+
+```bash
+PPT_IMAGE_MODE=minimax
+PPT_REQUIRE_IMAGES=1
+MINIMAX_API_KEY=你的 MiniMax API Key
+MINIMAX_IMAGE_API_URL=https://api.minimax.io/v1/image_generation
+MINIMAX_IMAGE_MODEL=image-01
+```
+
+如果 `.env` 没写 `MINIMAX_API_KEY`，脚本会尝试读取：
 
 ```text
-PPT 生成失败：具体错误信息
+~/.openclaw/openclaw.json
 ```
 
----
+中的 MiniMax provider key。
 
-## 关键注意事项
+如果 MiniMax 密钥缺失或接口失败，脚本会返回失败，不会继续生成纯文字 PPT。
 
-1. 不要再回复 `project/exports/catalog_lite_v1.pptx`。
-2. 不要把用户原始问题只塞进“商品描述”。
-3. 用户写了几页，最终 PPT 就必须生成几页。
-4. Windows 路径给业务人员看，Linux 路径用于服务器排查。
-5. 如果后续接入飞书云盘上传，则在此基础上增加 upload_file 步骤，不影响本地输出结构。
+## 输出目录规则
+
+PPT 文件直接位于任务目录下一级：
+
+```text
+/data/share/yaq/ppt/catalog/2026-05-25-16时35分-生成一个厨房餐具相关的3页的商品目录册PPT/2026-05-25-16时35分-生成一个厨房餐具相关的3页的商品目录册PPT.pptx
+```
+
+禁止回退到：
+
+```text
+project/exports/catalog_lite_v1.pptx
+```
+
+## 时间规则
+
+使用：
+
+```bash
+PPT_TIMEZONE=Asia/Shanghai
+```
+
+文件名时间格式：
+
+```text
+YYYY-MM-DD-HH时MM分-用户询问的问题
+```
+
+例如：
+
+```text
+2026-05-25-16时35分-生成一个厨房餐具相关的3页的商品目录册PPT
+```

@@ -1,25 +1,23 @@
-# workspace-PPT-Generation v1.1
+# workspace-PPT-Generation v1.2
 
 ## 版本定位
 
-v1.1 是基于 v1.0 的“飞书触发生成商品目录册 PPT”增强版，重点解决：
+v1.2 是基于 v1.1 的修正版，重点解决：
 
-1. 飞书中用户说“3页”，脚本必须真正生成 3 页，而不是固定 fallback 页数。
-2. 输出 PPT 不再放到 `project/exports/` 二级目录，而是直接放到任务目录一级。
-3. 任务目录和 PPT 文件名改为：`YYYY-MM-DD-HHMM-用户询问的问题`。
-4. 飞书回复内容返回最终 PPT 文件路径，而不是项目中间目录。
-5. 生成内容从“待确认占位模板”升级为“按类目动态生成商品目录册初稿”。
+1. 飞书回复太啰嗦：现在只回复 `Z:\...pptx` 本地映射盘路径。
+2. 文件名时间错误/不清楚：现在固定 `Asia/Shanghai`，格式为 `YYYY-MM-DD-HH时MM分-用户询问的问题`。
+3. PPT 只有文字：现在生产默认调用 MiniMax `image-01` 生图，并把封面图、商品图插入 PPT。
+4. 避免纯文字退化：默认 `PPT_REQUIRE_IMAGES=1`，MiniMax 不可用就失败，不继续生成干巴巴的文字版。
+5. 输出结构保持：PPT 文件直接放在任务目录一级，不再进入 `project/exports/`。
 
 ---
 
-## 推荐目录
-
-解压到 OpenClaw Agent 工作区，例如：
+## 推荐解压方式
 
 ```bash
 mkdir -p ~/.openclaw/workspace-PPT-Generation
 
-tar -xzvf workspace-PPT-Generation-v1.1.tar.gz \
+tar -xzvf workspace-PPT-Generation-v1.2.tar.gz \
   -C ~/.openclaw/workspace-PPT-Generation \
   --strip-components=1
 ```
@@ -36,68 +34,71 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-根据实际路径修改 `.env`：
+编辑 `.env`：
 
 ```bash
 PPT_CATALOG_ROOT=/data/share/yaq/ppt/catalog
 PPT_WINDOWS_SHARE_PREFIX=Z:\\yaq\\ppt\\catalog
-PPT_DEFAULT_PAGE_COUNT=5
-PPT_MAX_PAGE_COUNT=20
+PPT_TIMEZONE=Asia/Shanghai
+PPT_IMAGE_MODE=minimax
+PPT_REQUIRE_IMAGES=1
+MINIMAX_API_KEY=你的 MiniMax API Key
 ```
+
+如果你已经在 `~/.openclaw/openclaw.json` 配了 MiniMax key，也可以不写 `MINIMAX_API_KEY`，脚本会尝试自动读取。
 
 ---
 
-## 本地测试
+## 生产测试
 
 ```bash
 cd ~/.openclaw/workspace-PPT-Generation
 source .venv/bin/activate
 
-python scripts/generate_catalog_ppt_v11.py \
+python scripts/generate_catalog_ppt_v12.py \
   --prompt "生成一个厨房餐具相关的3页的商品目录册PPT" \
   --sender-name "陈玉" \
   --sender-open-id "ou_6e056040c28331827575c0061644569c" \
   --json
 ```
 
-预期输出类似：
+成功 JSON 中应包含：
 
 ```json
 {
   "ok": true,
-  "run_dir": "/data/share/yaq/ppt/catalog/2026-05-25-1632-生成一个厨房餐具相关的3页的商品目录册PPT",
-  "pptx_path": "/data/share/yaq/ppt/catalog/2026-05-25-1632-生成一个厨房餐具相关的3页的商品目录册PPT/2026-05-25-1632-生成一个厨房餐具相关的3页的商品目录册PPT.pptx",
-  "windows_path": "Z:\\yaq\\ppt\\catalog\\2026-05-25-1632-生成一个厨房餐具相关的3页的商品目录册PPT\\2026-05-25-1632-生成一个厨房餐具相关的3页的商品目录册PPT.pptx",
-  "page_count": 3
+  "page_count": 3,
+  "image_mode": "minimax",
+  "image_count": 5,
+  "reply_text": "Z:\\yaq\\ppt\\catalog\\2026-05-25-16时35分-生成一个厨房餐具相关的3页的商品目录册PPT\\2026-05-25-16时35分-生成一个厨房餐具相关的3页的商品目录册PPT.pptx"
 }
 ```
 
+飞书最终只发送 `reply_text`。
+
 ---
 
-## 飞书回复建议格式
+## 离线连通性测试
 
-Agent 在飞书里回复时建议只回业务人员能理解的内容：
+无 MiniMax key 时可以只验证 PPT 布局：
 
-```text
-已完成，PPT 文件：
-Z:\yaq\ppt\catalog\2026-05-25-1632-生成一个厨房餐具相关的3页的商品目录册PPT\2026-05-25-1632-生成一个厨房餐具相关的3页的商品目录册PPT.pptx
-
-服务器路径：
-/data/share/yaq/ppt/catalog/2026-05-25-1632-生成一个厨房餐具相关的3页的商品目录册PPT/2026-05-25-1632-生成一个厨房餐具相关的3页的商品目录册PPT.pptx
-
-已完成 · 3页 · 耗时 13.1s
+```bash
+PPT_IMAGE_MODE=placeholder python scripts/generate_catalog_ppt_v12.py \
+  --prompt "生成一个厨房餐具相关的3页的商品目录册PPT" \
+  --root /tmp/ppt_catalog_test \
+  --json
 ```
 
+注意：`placeholder` 只用于本地测试，不用于飞书生产。
+
 ---
 
-## v1.1 与 v1.0 的关键差异
+## 飞书回复格式
 
-| 项目 | v1.0 | v1.1 |
-|---|---|---|
-| 页数 | 固定 fallback，多数情况不解析用户页数 | 解析 `3页/三页/5页` 等表达 |
-| 输出目录 | `任务目录/project/exports/catalog_lite_v1.pptx` | `任务目录/任务名.pptx` |
-| 任务命名 | 时间 + open_id + 商品目录册 | 日期-时分-用户询问的问题 |
-| 内容 | 待命名、待识别、待确认 | 按类目生成商品系列、卖点、规格 |
-| 飞书返回 | 服务器路径 | Windows 共享路径 + 服务器路径 |
-| 业务可用性 | 链路验证 | 第一版可交付目录册草稿 |
+v1.2 成功时只回复：
 
+```text
+Z:\yaq\ppt\catalog\2026-05-25-16时35分-生成一个厨房餐具相关的3页的商品目录册PPT\2026-05-25-16时35分-生成一个厨房餐具相关的3页的商品目录册PPT.pptx
+```
+
+不要再回复服务器路径、页数、耗时。
