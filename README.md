@@ -1,97 +1,103 @@
-# workspace-PPT-Generation v1.0
+# workspace-PPT-Generation v1.1
 
-这是一个给 OpenClaw 使用的 PPT 生成工作区。
+## 版本定位
 
-## 定位
+v1.1 是基于 v1.0 的“飞书触发生成商品目录册 PPT”增强版，重点解决：
 
-- 保留 PPT-master 原始通用能力，不把它改成只能做商品目录册。
-- 在 OpenClaw 外层新增任务识别与 Profile 机制。
-- 当用户在飞书里提出“商品目录册 / 产品册 / 商品册 / 产品目录 / 根据实物或图片做 PPT”等需求时，加载 `profiles/catalog/` 下的目录册专用提示。
-- 商品目录册 PPT 的内部内容不写死，由 MiniMax 根据用户输入动态规划。
-- 第一版只处理飞书文字和图片输入。
-- 第一版不主动把 PPTX 上传回飞书，只回复服务器保存路径。
+1. 飞书中用户说“3页”，脚本必须真正生成 3 页，而不是固定 fallback 页数。
+2. 输出 PPT 不再放到 `project/exports/` 二级目录，而是直接放到任务目录一级。
+3. 任务目录和 PPT 文件名改为：`YYYY-MM-DD-HHMM-用户询问的问题`。
+4. 飞书回复内容返回最终 PPT 文件路径，而不是项目中间目录。
+5. 生成内容从“待确认占位模板”升级为“按类目动态生成商品目录册初稿”。
 
-## 输出目录
+---
 
-固定输出根目录：
+## 推荐目录
 
-```bash
-/data/share/yaq/ppt
-```
-
-每次任务会创建一个独立运行目录：
+解压到 OpenClaw Agent 工作区，例如：
 
 ```bash
-/data/share/yaq/ppt/catalog/2026-05-25-153012-feishu-user-商品目录册/
-/data/share/yaq/ppt/general/2026-05-25-153012-feishu-user-通用PPT/
+mkdir -p ~/.openclaw/workspace-PPT-Generation
+
+tar -xzvf workspace-PPT-Generation-v1.1.tar.gz \
+  -C ~/.openclaw/workspace-PPT-Generation \
+  --strip-components=1
 ```
 
-目录中会保存：
+---
 
-```text
-input/message.txt              # 原始飞书文本
-input/images/                  # 原始图片
-product_input.json             # 结构化输入
-catalog_outline.md             # 页面规划与内容大纲
-prompt_bundle.md               # 给模型/PPT-master 的提示集合
-project/                       # PPT-master 或 fallback 项目目录
-project/exports/*.pptx         # 最终 PPTX
-README.md                      # 本次任务说明
-```
-
-## 推荐安装
+## 安装依赖
 
 ```bash
-cd /home/cy/.openclaw
-tar -xzvf workspace-PPT-Generation-v1.0.tar.gz
-cd workspace-PPT-Generation
-
-bash install.sh
+cd ~/.openclaw/workspace-PPT-Generation
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
 ```
 
-安装脚本会创建 `/data/share/yaq/ppt`，并建立 Python 虚拟环境。
-
-## 可选：接入原版 PPT-master
-
-本压缩包默认不内置完整上游 PPT-master 仓库，避免包体过大。工作区保留 `vendor/ppt-master/` 位置和 adapter。
-
-如果要接入上游 PPT-master：
+根据实际路径修改 `.env`：
 
 ```bash
-cd /home/cy/.openclaw/workspace-PPT-Generation
-bash scripts/install_upstream_ppt_master.sh
+PPT_CATALOG_ROOT=/data/share/yaq/ppt/catalog
+PPT_WINDOWS_SHARE_PREFIX=Z:\\yaq\\ppt\\catalog
+PPT_DEFAULT_PAGE_COUNT=5
+PPT_MAX_PAGE_COUNT=20
 ```
 
-接入后，Agent 可以继续读取并遵守：
-
-```text
-vendor/ppt-master/skills/ppt-master/SKILL.md
-```
+---
 
 ## 本地测试
 
 ```bash
-cd /home/cy/.openclaw/workspace-PPT-Generation
+cd ~/.openclaw/workspace-PPT-Generation
 source .venv/bin/activate
-python scripts/run_ppt_generation.py   --user cy   --text "根据这个产品描述生成一个商品目录册PPT：冰蓝水花包装盒，适合夏季饮品包装，清爽、年轻、可定制印刷。"
+
+python scripts/generate_catalog_ppt_v11.py \
+  --prompt "生成一个厨房餐具相关的3页的商品目录册PPT" \
+  --sender-name "陈玉" \
+  --sender-open-id "ou_6e056040c28331827575c0061644569c" \
+  --json
 ```
 
-成功后会输出：
+预期输出类似：
+
+```json
+{
+  "ok": true,
+  "run_dir": "/data/share/yaq/ppt/catalog/2026-05-25-1632-生成一个厨房餐具相关的3页的商品目录册PPT",
+  "pptx_path": "/data/share/yaq/ppt/catalog/2026-05-25-1632-生成一个厨房餐具相关的3页的商品目录册PPT/2026-05-25-1632-生成一个厨房餐具相关的3页的商品目录册PPT.pptx",
+  "windows_path": "Z:\\yaq\\ppt\\catalog\\2026-05-25-1632-生成一个厨房餐具相关的3页的商品目录册PPT\\2026-05-25-1632-生成一个厨房餐具相关的3页的商品目录册PPT.pptx",
+  "page_count": 3
+}
+```
+
+---
+
+## 飞书回复建议格式
+
+Agent 在飞书里回复时建议只回业务人员能理解的内容：
 
 ```text
-PPTX_PATH=/data/share/yaq/ppt/.../project/exports/xxx.pptx
-REPLY_TEXT=已完成，保存路径：...
+已完成，PPT 文件：
+Z:\yaq\ppt\catalog\2026-05-25-1632-生成一个厨房餐具相关的3页的商品目录册PPT\2026-05-25-1632-生成一个厨房餐具相关的3页的商品目录册PPT.pptx
+
+服务器路径：
+/data/share/yaq/ppt/catalog/2026-05-25-1632-生成一个厨房餐具相关的3页的商品目录册PPT/2026-05-25-1632-生成一个厨房餐具相关的3页的商品目录册PPT.pptx
+
+已完成 · 3页 · 耗时 13.1s
 ```
 
-## 第一版边界
+---
 
-第一版不做：
+## v1.1 与 v1.0 的关键差异
 
-- 飞书文件上传回传。
-- 飞书卡片交互。
-- 多轮确认。
-- Excel、PDF、Word、网页输入。
-- 自动联网调研。
-- 视频、旁白、动画。
+| 项目 | v1.0 | v1.1 |
+|---|---|---|
+| 页数 | 固定 fallback，多数情况不解析用户页数 | 解析 `3页/三页/5页` 等表达 |
+| 输出目录 | `任务目录/project/exports/catalog_lite_v1.pptx` | `任务目录/任务名.pptx` |
+| 任务命名 | 时间 + open_id + 商品目录册 | 日期-时分-用户询问的问题 |
+| 内容 | 待命名、待识别、待确认 | 按类目生成商品系列、卖点、规格 |
+| 飞书返回 | 服务器路径 | Windows 共享路径 + 服务器路径 |
+| 业务可用性 | 链路验证 | 第一版可交付目录册草稿 |
 
-这些能力后续可以作为 profile 或 mode 扩展。
