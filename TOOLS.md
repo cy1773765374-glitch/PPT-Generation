@@ -1,4 +1,4 @@
-# 工具说明：PPT 商品目录册 v1.3
+# 工具说明：PPT 商品目录册 v1.4
 
 ## 主脚本
 
@@ -90,7 +90,7 @@ python scripts/check_minimax_image_api.py
 python scripts/check_minimax_image_api.py --live --out /tmp/check_minimax.png
 ```
 
-作用：检查 `MINIMAX_API_KEY`、官方图像接口 `https://api.minimax.io/v1/image_generation`、DNS 解析和可选真实生图。
+作用：检查 `MINIMAX_API_KEY`、图像接口 `https://api.minimax.com/v1/image_generation`、可选 DNS 解析和可选真实生图。
 
 ## 兼容入口
 
@@ -100,4 +100,4 @@ python scripts/check_minimax_image_api.py --live --out /tmp/check_minimax.png
 python scripts/generate_catalog_ppt_v12.py --prompt "$USER_TEXT" --json
 ```
 
-该文件在 v1.3 中只是兼容 wrapper，会转到 `generate_catalog_ppt_v13.py`。
+该文件在 v1.4 中只是兼容 wrapper，会转到 `generate_catalog_ppt_v13.py`。

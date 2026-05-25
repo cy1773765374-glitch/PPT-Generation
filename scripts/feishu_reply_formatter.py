@@ -3,7 +3,7 @@
 """
 将 generate_catalog_ppt_v13.py 的 JSON 输出转换为飞书回复文本。
 
-v1.3 规则：飞书只回复 Windows/Samba 本地路径，不回复服务器路径、页数、耗时或“已完成”。
+v1.4 规则：飞书只回复 Windows/Samba 本地路径，不回复服务器路径、页数、耗时或“已完成”。
 """
 
 from __future__ import annotations
