@@ -1,4 +1,4 @@
-# 飞书接入说明 v1.4
+# 飞书接入说明 v1.5
 
 ## 预检 MiniMax
 
@@ -41,7 +41,7 @@ python scripts/generate_catalog_ppt_v13.py --prompt "$USER_TEXT" --json \
   | python scripts/feishu_reply_formatter.py
 ```
 
-## v1.4 飞书回复规则
+## v1.5 飞书回复规则
 
 成功时只回复一行本地路径：
 

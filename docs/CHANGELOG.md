@@ -1,6 +1,13 @@
+# v1.5
+
+- MiniMax 生图接口保留用户配置的 `https://api.minimax.com/v1/image_generation` 作为第一候选。
+- 当 `api.minimax.com` DNS 解析失败或请求失败时，自动尝试国内开放平台 `https://api.minimaxi.com/v1/image_generation` 与国际站 `https://api.minimax.io/v1/image_generation`。
+- 新增 `MINIMAX_IMAGE_API_URL_CANDIDATES`、`MINIMAX_AUTO_FALLBACK_HOSTS`、`MINIMAX_PROXY_URL`，适配云服务器 DNS、代理与不同 MiniMax 站点。
+- 生图全部失败时仍不生成纯文字 PPT，只写入 `ERROR.txt`。
+
 # CHANGELOG
 
-## v1.4
+## v1.5
 
 - 按用户实际环境保留 `api.minimax.com`，不再自动改写域名；默认关闭本机 DNS 预检，适配代理/专线网络。
 - 新增 `scripts/check_minimax_image_api.py`，用于检查 MiniMax API Key、接口域名、可选 DNS 和可选真实生图。
