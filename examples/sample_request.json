@@ -1,6 +1,18 @@
 {
-  "prompt": "生成一个厨房餐具相关的3页的商品目录册PPT",
-  "sender_name": "陈玉",
-  "sender_open_id": "ou_6e056040c28331827575c0061644569c",
-  "expected_reply": "Z:\\yaq\\ppt\\catalog\\2026-05-25-18时32分-生成一个厨房餐具相关的3页的商品目录册PPT\\2026-05-25-18时32分-生成一个厨房餐具相关的3页的商品目录册PPT.pptx"
+  "prompt": "Generate a 10-page festive party theme product catalog PPT for SELLERS UNION. Page 1: Company introduction for SELLERS UNION - a premier party supplies and festive decorations supplier. Pages 2-10: Each page features one product category with party-related images and English descriptions. Product categories: Balloons and Balloon Sets, Rain Curtains, Candles, Bunting Garlands, Hats, Party Blowers, Disposable Party Tableware, COS Costumes, and other party decorations. All text in English. High-quality commercial product catalog style.",
+  "expected": {
+    "page_count": 10,
+    "language": "en",
+    "categories": [
+      "Balloons and Balloon Sets",
+      "Rain Curtains",
+      "Candles",
+      "Bunting Garlands",
+      "Hats",
+      "Party Blowers",
+      "Disposable Party Tableware",
+      "COS Costumes",
+      "Other Party Decorations"
+    ]
+  }
 }

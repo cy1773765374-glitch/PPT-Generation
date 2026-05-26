@@ -1,40 +1,60 @@
 # Python
 __pycache__/
 *.py[cod]
-*.so
-.Python
+.pytest_cache/
 .venv/
 venv/
-env/
-ENV/
 
-# 项目特定目录（通常为运行时或本地生成数据）
-.openclaw/
-logs/
-patches/
-profiles/
-runs/
-vendor/
-
-# 配置文件（忽略整个 config 目录，如有模板请保留 config.example）
-config/
-
-# 环境变量
+# Local config / secrets
 .env
-.env.local
-.env.*.local
+*.key
+*.pem
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
+# Generated output
+outputs/
+run_outputs/
+assets/minimax/
+assets/placeholder/
+*.log
+ERROR.txt
 
-# 操作系统
+# Local/generated PPT data
+/data/
+*.tmp
+
+# Third-party or preserved local project; keep it on server but do not upload accidentally
+PPT-master/
+!PPT-master/README.md
+
+# OS/editor
 .DS_Store
 Thumbs.db
+.idea/
+.vscode/
 
-# 日志与临时文件
-*.log
-*.tmp
-*.temp
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local config
+.env
+*.env
+
+# Runtime output
+runs/
+logs/
+memory/
+*.pptx
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.pdf
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

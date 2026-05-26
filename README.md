@@ -1,30 +1,62 @@
-# workspace-PPT-Generation v1.5
+# workspace-PPT-Generation 最终版
 
-## 版本定位
+本包是在 1.5 压缩包基础上直接重构后的最终交付包，不再沿用 v1.6、v1.7 这种中间版本命名。
 
-v1.5 是针对 v1.2 线上测试失败的修正版，重点解决：
+## 解决的问题
 
-1. **MiniMax 生图域名策略**：默认使用 `https://api.minimax.com/v1/image_generation`，不再自动改写域名。
-2. **失败时找不到原因**：生图失败时不会生成伪 PPT，但会在任务目录下写入 `ERROR.txt`，方便排查。
-3. **飞书成功回复仍保持一行路径**：成功后仍只回复 `Z:\...pptx`，不回复服务器路径、页数、耗时。
-4. **PPT 必须有图**：生产默认 `PPT_IMAGE_MODE=minimax`、`PPT_REQUIRE_IMAGES=1`，MiniMax 不可用就失败，不退化成纯文字 PPT。
-5. **兼容旧入口**：如果 Feishu/OpenClaw 旧配置仍调用 `scripts/generate_catalog_ppt_v12.py`，会自动转到 v1.5 实现。
+1. 详细英文需求不再被压成固定 5 页模板。
+2. `10-page`、`Pages 2-10`、`Product categories:` 会进入 `deck_plan.json`，后续渲染只能按该计划执行。
+3. 用户要求 `All text in English` 时，PPT 页面文本禁止出现中文硬编码字段。
+4. 用户显式给出的 9 个产品类目会逐页展开，不再生成“核心款 A / 升级款 B / 组合款 C / 展示款 D”。
+5. 每页都有独立 image brief，MiniMax 生图 prompt 与当前页面类目绑定。
+6. 输出前做硬校验：页数、语言、类目、标题、图片数量，不通过则失败，不返回“已完成”。
+7. 保留 `PPT-master/`：安装脚本不会删除或覆盖已有 `PPT-master` 目录。
 
----
+## 目录结构
 
-## 推荐解压方式
+```text
+workspace-PPT-Generation/
+├── AGENTS.md
+├── TOOLS.md
+├── README.md
+├── .env.example
+├── .gitignore
+├── install_update.sh
+├── PPT-master/
+│   └── README.md
+├── scripts/
+│   ├── generate_catalog_ppt.py
+│   ├── check_minimax_image_api.py
+│   ├── feishu_reply_formatter.py
+│   └── run_local_test.sh
+├── docs/
+│   ├── FEISHU_INTEGRATION.md
+│   └── CHANGELOG.md
+├── examples/
+│   └── sample_request.json
+└── tests/
+    ├── test_plan.py
+    └── test_parse.py
+```
+
+## 覆盖部署
 
 ```bash
 mkdir -p ~/.openclaw/workspace-PPT-Generation
 
-tar -xzvf workspace-PPT-Generation-v1.5.tar.gz \
+tar -xzvf workspace-PPT-Generation-final.tar.gz \
   -C ~/.openclaw/workspace-PPT-Generation \
   --strip-components=1
+
+cd ~/.openclaw/workspace-PPT-Generation
+bash install_update.sh ~/.openclaw/workspace-PPT-Generation
 ```
 
----
+`install_update.sh` 会清理旧的 `generate_catalog_ppt_v12.py / v13.py / v14.py / v15.py` 入口，避免飞书继续调用旧逻辑；同时不会删除 `.env`、`.venv` 和 `PPT-master/`。
 
 ## 安装依赖
+
+如果不使用安装脚本，也可以手动执行：
 
 ```bash
 cd ~/.openclaw/workspace-PPT-Generation
@@ -47,38 +79,13 @@ MINIMAX_IMAGE_API_URL=https://api.minimax.com/v1/image_generation
 MINIMAX_NETWORK_PRECHECK=0
 ```
 
-如果你已经在 `~/.openclaw/openclaw.json` 配了 MiniMax key，也可以不写 `MINIMAX_API_KEY`，脚本会尝试自动读取。
+如果 `~/.openclaw/openclaw.json` 已配置 MiniMax key，也可以不写 `MINIMAX_API_KEY`，脚本会尝试自动读取。
 
----
-
-## 先做 MiniMax 接口预检
-
-只检查 key + 域名解析：
+## 主入口
 
 ```bash
-python scripts/check_minimax_image_api.py
-```
-
-执行一次真实生图请求：
-
-```bash
-python scripts/check_minimax_image_api.py --live --out /tmp/check_minimax.png
-```
-
-如果这里失败，说明不是 PPT 代码问题，而是服务器到 MiniMax 图像接口的 DNS、代理、网络或 API Key 问题。
-
----
-
-## 生产测试
-
-```bash
-cd ~/.openclaw/workspace-PPT-Generation
-source .venv/bin/activate
-
-python scripts/generate_catalog_ppt_v13.py \
-  --prompt "生成一个厨房餐具相关的3页的商品目录册PPT" \
-  --sender-name "陈玉" \
-  --sender-open-id "ou_6e056040c28331827575c0061644569c" \
+python scripts/generate_catalog_ppt.py \
+  --prompt "Generate a 10-page festive party theme product catalog PPT for SELLERS UNION. Page 1: Company introduction for SELLERS UNION - a premier party supplies and festive decorations supplier. Pages 2-10: Each page features one product category with party-related images and English descriptions. Product categories: Balloons and Balloon Sets, Rain Curtains, Candles, Bunting Garlands, Hats, Party Blowers, Disposable Party Tableware, COS Costumes, and other party decorations. All text in English. High-quality commercial product catalog style." \
   --json
 ```
 
@@ -87,38 +94,55 @@ python scripts/generate_catalog_ppt_v13.py \
 ```json
 {
   "ok": true,
-  "page_count": 3,
-  "image_mode": "minimax",
-  "image_count": 5,
-  "reply_text": "Z:\\yaq\\ppt\\catalog\\2026-05-25-18时32分-生成一个厨房餐具相关的3页的商品目录册PPT\\2026-05-25-18时32分-生成一个厨房餐具相关的3页的商品目录册PPT.pptx"
+  "page_count": 10,
+  "language": "en",
+  "image_count": 10,
+  "validation": {"ok": true},
+  "reply_text": "Z:\\yaq\\ppt\\catalog\\...\\xxx.pptx"
 }
 ```
 
 飞书最终只发送 `reply_text`。
 
----
+## 离线测试
 
-## 飞书回复格式
-
-成功时只回复一行：
-
-```text
-Z:\yaq\ppt\catalog\2026-05-25-18时32分-生成一个厨房餐具相关的3页的商品目录册PPT\2026-05-25-18时32分-生成一个厨房餐具相关的3页的商品目录册PPT.pptx
-```
-
-不要再回复服务器路径、页数、耗时。
-
----
-
-## 离线布局测试
-
-仅用于确认 PPT 布局，不用于飞书生产：
+离线只验证解析、排版和校验，不调用 MiniMax：
 
 ```bash
-PPT_IMAGE_MODE=placeholder python scripts/generate_catalog_ppt_v13.py \
-  --prompt "生成一个厨房餐具相关的3页的商品目录册PPT" \
+PPT_IMAGE_MODE=placeholder PPT_REQUIRE_IMAGES=1 python scripts/generate_catalog_ppt.py \
+  --prompt "Generate a 10-page festive party theme product catalog PPT for SELLERS UNION. Page 1: Company introduction for SELLERS UNION - a premier party supplies and festive decorations supplier. Pages 2-10: Each page features one product category with party-related images and English descriptions. Product categories: Balloons and Balloon Sets, Rain Curtains, Candles, Bunting Garlands, Hats, Party Blowers, Disposable Party Tableware, COS Costumes, and other party decorations. All text in English. High-quality commercial product catalog style." \
   --root /tmp/ppt_catalog_test \
   --json
 ```
 
-生产环境不要把 `PPT_IMAGE_MODE` 改成 `placeholder`，否则就不是 MiniMax 生图版本。
+或者直接：
+
+```bash
+bash scripts/run_local_test.sh
+python tests/test_plan.py
+```
+
+## MiniMax 预检
+
+```bash
+python scripts/check_minimax_image_api.py
+python scripts/check_minimax_image_api.py --live --out /tmp/check_minimax.png
+```
+
+如果这里失败，优先排查服务器到 MiniMax 图像接口的 DNS、代理、网络或 API Key。
+
+## 飞书回复规则
+
+成功时只回复一行：
+
+```text
+Z:\yaq\ppt\catalog\...\xxx.pptx
+```
+
+失败时回复：
+
+```text
+PPT 生成失败：具体错误
+```
+
+不要回复服务器 Linux 路径、耗时、页数或“已完成”。

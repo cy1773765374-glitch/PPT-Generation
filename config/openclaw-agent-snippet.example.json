@@ -1,0 +1,10 @@
+{
+  "agents": {
+    "ppt_generation": {
+      "description": "PPT生成Agent：飞书文字/图片输入，生成PPTX，保存到/data/share/yaq/ppt，只回复路径",
+      "workdir": "/home/cy/.openclaw/workspace-PPT-Generation",
+      "model": "minimax/MiniMax-M2.7",
+      "imageModel": "minimax/MiniMax-VL-01"
+    }
+  }
+}

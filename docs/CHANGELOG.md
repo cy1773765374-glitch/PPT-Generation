@@ -1,38 +1,12 @@
-# v1.5
-
-- MiniMax 生图接口保留用户配置的 `https://api.minimax.com/v1/image_generation` 作为第一候选。
-- 当 `api.minimax.com` DNS 解析失败或请求失败时，自动尝试国内开放平台 `https://api.minimaxi.com/v1/image_generation` 与国际站 `https://api.minimax.io/v1/image_generation`。
-- 新增 `MINIMAX_IMAGE_API_URL_CANDIDATES`、`MINIMAX_AUTO_FALLBACK_HOSTS`、`MINIMAX_PROXY_URL`，适配云服务器 DNS、代理与不同 MiniMax 站点。
-- 生图全部失败时仍不生成纯文字 PPT，只写入 `ERROR.txt`。
-
 # CHANGELOG
 
-## v1.5
+## 最终版
 
-- 按用户实际环境保留 `api.minimax.com`，不再自动改写域名；默认关闭本机 DNS 预检，适配代理/专线网络。
-- 新增 `scripts/check_minimax_image_api.py`，用于检查 MiniMax API Key、接口域名、可选 DNS 和可选真实生图。
-- 生图失败时不生成伪 PPT，但会创建任务目录并写入 `ERROR.txt`，方便从 `/data/share/yaq/ppt/catalog/` 定位失败原因。
-- 继续保持成功回复只输出一行 Windows/Samba 本地路径。
-- 保留 `scripts/generate_catalog_ppt_v12.py` 作为兼容 wrapper，旧 OpenClaw/飞书配置无需立即改入口。
-
-## v1.2
-
-- 飞书回复改为只返回 Windows/Samba 本地路径，例如：
-  `Z:\yaq\ppt\catalog\2026-05-25-16时35分-生成一个厨房餐具相关的3页的商品目录册PPT\2026-05-25-16时35分-生成一个厨房餐具相关的3页的商品目录册PPT.pptx`
-- 不再回复服务器路径、页数、耗时，也不主动添加“已完成”。
-- 任务目录与 PPT 文件名时间改为 `YYYY-MM-DD-HH时MM分-用户询问的问题`。
-- 固定使用 `PPT_TIMEZONE=Asia/Shanghai`，避免服务器 UTC 时间导致文件名显示为 `09:35`。
-- 生产默认调用 MiniMax `image-01` 生图，并将封面图、商品图插入 PPT。
-- 默认 `PPT_REQUIRE_IMAGES=1`，如果 MiniMax 密钥缺失或生图失败，脚本直接失败，避免继续生成纯文字 PPT。
-- 新增 `PPT_IMAGE_MODE=placeholder` 离线测试模式，仅用于本地连通性测试，不用于飞书生产。
-- 继续保持 PPT 文件直接放在任务目录一级，不使用 `project/exports/`。
-
-## v1.1
-
-- 新增用户页数解析：支持 `3页`、`三页`、`五页` 等表达。
-- 修改输出目录：PPT 文件直接放在任务目录一级。
-- 修改任务命名：`YYYY-MM-DD-HHMM-用户询问的问题`。
-- PPT 文件名与任务目录名保持一致。
-- 新增 Windows 共享路径回显：例如 `Z:\yaq\ppt\catalog\...`。
-- 移除 v1.0 中 `project/exports/catalog_lite_v1.pptx` 的输出结构。
-- fallback 内容升级：按商品类目生成商品系列、卖点、规格。
+- 主入口统一为 `scripts/generate_catalog_ppt.py`，删除 v12/v13/v14/v15 旧入口。
+- 新增 `deck_plan.json` 唯一事实源。
+- 支持英文详细需求：`10-page`、`Page 1`、`Pages 2-10`、`Product categories`、`All text in English`。
+- 英文需求下页面文本不再含中文硬编码字段。
+- 用户指定类目逐页展开，不再使用“核心款 A / 升级款 B / 组合款 C / 展示款 D”兜底模板。
+- 每页生成独立 image brief，MiniMax prompt 与当前页类目绑定。
+- 新增硬校验：页数、语言、类目、标题、图片数量。
+- 安装脚本保留 `.env`、`.venv`、`PPT-master/`。

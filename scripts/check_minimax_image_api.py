@@ -16,7 +16,7 @@ except Exception:
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
-from generate_catalog_ppt_v15 import (  # noqa: E402
+from generate_catalog_ppt import (  # noqa: E402
     MiniMaxImageClient,
     assert_hostname_resolves,
     get_minimax_api_key,
@@ -67,7 +67,7 @@ def main() -> None:
             client = MiniMaxImageClient()
             out = Path(args.out).expanduser().resolve()
             client.generate_to_file(
-                "A clean commercial product catalog photo of stainless steel kitchen tableware on a white background, no text, no logo",
+                "A clean commercial product catalog photo of party supplies on a white background, no text, no logo",
                 out,
                 "1:1",
             )

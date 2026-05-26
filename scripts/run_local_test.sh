@@ -2,10 +2,4 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-# 离线测试用 placeholder；生产飞书链路必须使用默认 PPT_IMAGE_MODE=minimax。
-PPT_IMAGE_MODE=placeholder python scripts/generate_catalog_ppt_v13.py \
-  --prompt "生成一个厨房餐具相关的3页的商品目录册PPT" \
-  --sender-name "陈玉" \
-  --sender-open-id "ou_6e056040c28331827575c0061644569c" \
-  --root "${PPT_CATALOG_ROOT:-/tmp/ppt_catalog_test}" \
-  --json
+PPT_IMAGE_MODE=placeholder PPT_REQUIRE_IMAGES=1 python scripts/generate_catalog_ppt.py   --prompt "Generate a 10-page festive party theme product catalog PPT for SELLERS UNION. Page 1: Company introduction for SELLERS UNION - a premier party supplies and festive decorations supplier. Pages 2-10: Each page features one product category with party-related images and English descriptions. Product categories: Balloons and Balloon Sets, Rain Curtains, Candles, Bunting Garlands, Hats, Party Blowers, Disposable Party Tableware, COS Costumes, and other party decorations. All text in English. High-quality commercial product catalog style."   --root "${PPT_CATALOG_ROOT:-/tmp/ppt_catalog_test}"   --json

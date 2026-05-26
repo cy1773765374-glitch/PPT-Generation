@@ -1,117 +1,109 @@
-# 飞书接入说明 v1.5
-
-## 预检 MiniMax
-
-部署后先执行：
-
-```bash
-python scripts/check_minimax_image_api.py
-```
-
-如果要真实验证生图：
-
-```bash
-python scripts/check_minimax_image_api.py --live --out /tmp/check_minimax.png
-```
-
-只有这里通过后，飞书触发才会真正生成带图 PPT。
+# 飞书接入说明
 
 ## 目标
 
-飞书用户输入：
+飞书用户输入详细商品目录册需求时，Agent 生成符合页数、语言、类目顺序和图片要求的 PPT，并只回复 Windows/Samba 本地路径。
 
-```text
-生成一个厨房餐具相关的3页的商品目录册PPT
-```
+## OpenClaw 调用方式
 
-Agent 调用：
+推荐主入口：
 
 ```bash
-python scripts/generate_catalog_ppt_v13.py \
-  --prompt "生成一个厨房餐具相关的3页的商品目录册PPT" \
-  --sender-name "陈玉" \
-  --sender-open-id "ou_xxx" \
+cd ~/.openclaw/workspace-PPT-Generation
+source .venv/bin/activate
+
+python scripts/generate_catalog_ppt.py \
+  --prompt "$USER_TEXT" \
+  --sender-name "$SENDER_NAME" \
+  --sender-open-id "$OPEN_ID" \
   --json
 ```
 
-然后把 JSON 交给 formatter：
+再交给 formatter：
 
 ```bash
-python scripts/generate_catalog_ppt_v13.py --prompt "$USER_TEXT" --json \
+python scripts/generate_catalog_ppt.py --prompt "$USER_TEXT" --json \
   | python scripts/feishu_reply_formatter.py
 ```
 
-## v1.5 飞书回复规则
+## 成功回复
 
-成功时只回复一行本地路径：
-
-```text
-Z:\yaq\ppt\catalog\2026-05-25-16时35分-生成一个厨房餐具相关的3页的商品目录册PPT\2026-05-25-16时35分-生成一个厨房餐具相关的3页的商品目录册PPT.pptx
-```
-
-不要回复：
+只回复：
 
 ```text
-已完成，PPT 文件：
-服务器路径：
-已完成 · 3页 · 耗时 12.6s
+Z:\yaq\ppt\catalog\...\xxx.pptx
 ```
 
-原因：OpenClaw/飞书外层可能已经有耗时提示，脚本再回复会导致内容重复、显得很乱。
+不要附加服务器路径、页数、耗时或“已完成”。
 
-## MiniMax 生图规则
+## 失败回复
 
-生产环境 `.env` 使用：
+```text
+PPT 生成失败：具体错误
+```
+
+如果页数、语言、类目、标题或图片数量校验失败，也必须走失败回复。
+
+## 生产环境变量
 
 ```bash
+PPT_CATALOG_ROOT=/data/share/yaq/ppt/catalog
+PPT_WINDOWS_SHARE_PREFIX=Z:\\yaq\\ppt\\catalog
+PPT_TIMEZONE=Asia/Shanghai
 PPT_IMAGE_MODE=minimax
 PPT_REQUIRE_IMAGES=1
 MINIMAX_API_KEY=你的 MiniMax API Key
 MINIMAX_IMAGE_API_URL=https://api.minimax.com/v1/image_generation
 MINIMAX_NETWORK_PRECHECK=0
-MINIMAX_IMAGE_MODEL=image-01
 ```
 
-如果 `.env` 没写 `MINIMAX_API_KEY`，脚本会尝试读取：
-
-```text
-~/.openclaw/openclaw.json
-```
-
-中的 MiniMax provider key。
-
-如果 MiniMax 密钥缺失或接口失败，脚本会返回失败，不会继续生成纯文字 PPT。
-
-## 输出目录规则
-
-PPT 文件直接位于任务目录下一级：
-
-```text
-/data/share/yaq/ppt/catalog/2026-05-25-16时35分-生成一个厨房餐具相关的3页的商品目录册PPT/2026-05-25-16时35分-生成一个厨房餐具相关的3页的商品目录册PPT.pptx
-```
-
-禁止回退到：
-
-```text
-project/exports/catalog_lite_v1.pptx
-```
-
-## 时间规则
-
-使用：
+如果服务器通过代理访问 MiniMax，可设置：
 
 ```bash
-PPT_TIMEZONE=Asia/Shanghai
+MINIMAX_PROXY_URL=http://127.0.0.1:17897
 ```
 
-文件名时间格式：
+## 详细需求示例
 
 ```text
-YYYY-MM-DD-HH时MM分-用户询问的问题
+Generate a 10-page festive party theme product catalog PPT for SELLERS UNION. Page 1: Company introduction for SELLERS UNION - a premier party supplies and festive decorations supplier. Pages 2-10: Each page features one product category with party-related images and English descriptions. Product categories: Balloons and Balloon Sets, Rain Curtains, Candles, Bunting Garlands, Hats, Party Blowers, Disposable Party Tableware, COS Costumes, and other party decorations. All text in English. High-quality commercial product catalog style.
 ```
 
-例如：
+应生成 10 页：
 
 ```text
-2026-05-25-16时35分-生成一个厨房餐具相关的3页的商品目录册PPT
+1. SELLERS UNION company introduction
+2. Balloons and Balloon Sets
+3. Rain Curtains
+4. Candles
+5. Bunting Garlands
+6. Hats
+7. Party Blowers
+8. Disposable Party Tableware
+9. COS Costumes
+10. Other Party Decorations
 ```
+
+## 输出文件
+
+每次任务目录下至少包含：
+
+```text
+xxx.pptx
+assets/
+deck_plan.json
+metadata.json
+README.txt
+```
+
+其中 `deck_plan.json` 是排查页数、语言、类目、图片 prompt 的关键文件。
+
+## PPT-master 保留
+
+部署脚本不会删除或覆盖：
+
+```text
+~/.openclaw/workspace-PPT-Generation/PPT-master/
+```
+
+不要使用会删除该目录的同步命令。
