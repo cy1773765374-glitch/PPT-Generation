@@ -16,11 +16,12 @@ except Exception:
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
-from generate_catalog_ppt_v14 import (  # noqa: E402
+from generate_catalog_ppt_v15 import (  # noqa: E402
     MiniMaxImageClient,
     assert_hostname_resolves,
     get_minimax_api_key,
     normalize_minimax_image_api_url,
+    get_minimax_image_api_candidates,
 )
 
 
@@ -41,12 +42,14 @@ def main() -> None:
         or "https://api.minimax.com/v1/image_generation"
     )
     normalized_url = normalize_minimax_image_api_url(configured_url)
+    candidates = get_minimax_image_api_candidates()
     api_key = get_minimax_api_key()
 
     result = {
         "ok": False,
         "configured_url": configured_url,
         "normalized_url": normalized_url,
+        "candidate_urls": candidates,
         "has_api_key": bool(api_key),
         "dns_check_enabled": bool(args.dns),
         "dns_ok": None,

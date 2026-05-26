@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from generate_catalog_ppt_v14 import extract_page_count, extract_category, sanitize_filename, make_run_paths, normalize_minimax_image_api_url
+from generate_catalog_ppt_v15 import extract_page_count, extract_category, sanitize_filename, make_run_paths, normalize_minimax_image_api_url
 
 
 def test_page_count():

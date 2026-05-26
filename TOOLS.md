@@ -1,4 +1,4 @@
-# 工具说明：PPT 商品目录册 v1.4
+# 工具说明：PPT 商品目录册 v1.5
 
 ## 主脚本
 
@@ -100,4 +100,4 @@ python scripts/check_minimax_image_api.py --live --out /tmp/check_minimax.png
 python scripts/generate_catalog_ppt_v12.py --prompt "$USER_TEXT" --json
 ```
 
-该文件在 v1.4 中只是兼容 wrapper，会转到 `generate_catalog_ppt_v13.py`。
+该文件在 v1.5 中只是兼容 wrapper，会转到 `generate_catalog_ppt_v13.py`。
