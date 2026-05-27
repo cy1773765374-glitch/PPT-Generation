@@ -32,29 +32,6 @@ Thumbs.db
 .idea/
 .vscode/
 
-# Python
-__pycache__/
-*.py[cod]
-.venv/
-venv/
-
-# Local config
-.env
-*.env
-
-# Runtime output
-runs/
-logs/
-memory/
-*.pptx
-*.png
-*.jpg
-*.jpeg
-*.webp
-*.pdf
-
-# OS/editor
-.DS_Store
-Thumbs.db
-.idea/
-.vscode/
+# PPT-master vendored full repo is kept locally on server
+vendor/ppt-master/*
+!vendor/ppt-master/README.md

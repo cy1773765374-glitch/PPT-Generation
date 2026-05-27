@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-OpenClaw PPT 商品目录册生成器（最终结构）
+OpenClaw PPT 商品目录册生成器（PPT-master 适配版）
 
 设计目标：
 - 用户显式页数、语言、品牌、页面结构、产品类目优先。
 - deck_plan.json 是唯一事实来源，渲染层不得重新决定页数或类目。
+- 默认优先使用 vendor/ppt-master 的 SVG → native editable PPTX 管线。
 - 生产默认调用 MiniMax 生图，失败即失败；离线测试可用 placeholder。
 - 成功时飞书只回复 Windows/Samba 本地路径。
 """
@@ -54,6 +55,17 @@ except Exception as exc:  # pragma: no cover
     print(json.dumps({"ok": False, "error": f"python-pptx 未安装或加载失败：{exc}"}, ensure_ascii=False))
     sys.exit(1)
 
+try:
+    from openclaw_pptmaster_adapter import (
+        PPTMasterPipelineError,
+        PPTMasterUnavailable,
+        build_with_pptmaster,
+    )
+except Exception:  # pragma: no cover
+    PPTMasterPipelineError = RuntimeError  # type: ignore
+    PPTMasterUnavailable = RuntimeError  # type: ignore
+    build_with_pptmaster = None  # type: ignore
+
 
 DEFAULT_TZ = "Asia/Shanghai"
 INVALID_FILENAME_CHARS = '<>:"/\\\\|?*\n\r\t'
@@ -95,6 +107,7 @@ class SlidePlan:
     sections: List[Dict[str, Any]] = field(default_factory=list)
     image_key: str = ""
     image_prompt: str = ""
+    layout_variant: str = ""
 
 
 @dataclass
@@ -110,6 +123,8 @@ class DeckPlan:
     slides: List[SlidePlan]
     explicit_categories: List[str] = field(default_factory=list)
     image_briefs: List[ImageBrief] = field(default_factory=list)
+    style_family: str = "commercial"
+    requested_sections: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -143,6 +158,9 @@ class GenerationResult:
     language: str = ""
     deck_plan_path: str = ""
     image_mode: str = ""
+    render_backend: str = ""
+    pptmaster_project_dir: str = ""
+    pptmaster_log_path: str = ""
     image_count: int = 0
     image_assets: List[Dict[str, Any]] = field(default_factory=list)
     validation: Dict[str, Any] = field(default_factory=dict)
@@ -308,14 +326,432 @@ def title_case_category(text: str) -> str:
     return " ".join(words)
 
 
+
+
+STYLE_PROFILES: Dict[str, Dict[str, Any]] = {
+    "commercial": {
+        "name_en": "Modern Commercial",
+        "name_zh": "现代商业",
+        "bg": (248, 250, 252),
+        "panel": (255, 255, 255),
+        "accent": (37, 99, 235),
+        "accent2": (14, 165, 233),
+        "accent3": (16, 185, 129),
+        "text": (15, 23, 42),
+        "muted": (71, 85, 105),
+    },
+    "minimal": {
+        "name_en": "Minimal Editorial",
+        "name_zh": "极简画册",
+        "bg": (250, 250, 249),
+        "panel": (255, 255, 255),
+        "accent": (30, 41, 59),
+        "accent2": (100, 116, 139),
+        "accent3": (148, 163, 184),
+        "text": (17, 24, 39),
+        "muted": (82, 82, 91),
+    },
+    "luxury": {
+        "name_en": "Premium Luxury",
+        "name_zh": "高端轻奢",
+        "bg": (250, 247, 242),
+        "panel": (255, 252, 247),
+        "accent": (146, 64, 14),
+        "accent2": (180, 83, 9),
+        "accent3": (217, 119, 6),
+        "text": (28, 25, 23),
+        "muted": (87, 83, 78),
+    },
+    "playful": {
+        "name_en": "Playful Retail",
+        "name_zh": "活泼零售",
+        "bg": (255, 247, 237),
+        "panel": (255, 255, 255),
+        "accent": (234, 88, 12),
+        "accent2": (217, 70, 239),
+        "accent3": (14, 165, 233),
+        "text": (30, 41, 59),
+        "muted": (71, 85, 105),
+    },
+    "festive": {
+        "name_en": "Festive Campaign",
+        "name_zh": "节庆活动",
+        "bg": (255, 251, 235),
+        "panel": (255, 255, 255),
+        "accent": (220, 38, 38),
+        "accent2": (245, 158, 11),
+        "accent3": (22, 163, 74),
+        "text": (39, 39, 42),
+        "muted": (82, 82, 91),
+    },
+    "nature": {
+        "name_en": "Natural Warmth",
+        "name_zh": "自然温润",
+        "bg": (246, 248, 240),
+        "panel": (255, 255, 251),
+        "accent": (76, 120, 86),
+        "accent2": (132, 111, 74),
+        "accent3": (101, 163, 13),
+        "text": (31, 41, 55),
+        "muted": (75, 85, 99),
+    },
+    "tech": {
+        "name_en": "Clean Tech",
+        "name_zh": "科技理性",
+        "bg": (239, 246, 255),
+        "panel": (255, 255, 255),
+        "accent": (29, 78, 216),
+        "accent2": (6, 182, 212),
+        "accent3": (99, 102, 241),
+        "text": (15, 23, 42),
+        "muted": (51, 65, 85),
+    },
+}
+
+SECTION_LABELS = {
+    "en": {
+        "positioning": "Product Positioning",
+        "range": "Range Direction",
+        "scenario": "Usage Scenario",
+        "selling_points": "Selling Points",
+        "materials": "Material & Finish",
+        "colors": "Color Direction",
+        "customization": "Customization",
+        "packaging": "Packaging",
+        "price": "Price Tier",
+        "moq": "MOQ Note",
+        "carton": "Carton / Packing Data",
+        "certification": "Certification",
+        "delivery": "Delivery Note",
+        "sku": "SKU Ideas",
+        "audience": "Buyer Angle",
+    },
+    "zh": {
+        "positioning": "产品定位",
+        "range": "系列方向",
+        "scenario": "使用场景",
+        "selling_points": "核心卖点",
+        "materials": "材质与工艺",
+        "colors": "色彩方向",
+        "customization": "定制方向",
+        "packaging": "包装方式",
+        "price": "价格层级",
+        "moq": "MOQ 备注",
+        "carton": "箱规/装箱信息",
+        "certification": "认证信息",
+        "delivery": "交期说明",
+        "sku": "SKU 建议",
+        "audience": "采购视角",
+    },
+}
+
+REQUESTED_SECTION_PATTERNS: Dict[str, List[str]] = {
+    "scenario": ["scenario", "occasion", "use case", "应用场景", "适用场景", "使用场景", "场景"],
+    "selling_points": ["selling point", "selling points", "key feature", "key features", "product feature", "product features", "advantage", "卖点", "特点", "优势", "亮点"],
+    "materials": ["material", "finish", "材质", "材料", "工艺", "表面处理"],
+    "colors": ["color", "colour", "palette", "颜色", "色彩", "配色"],
+    "customization": ["custom", "oem", "odm", "定制", "贴牌", "定做"],
+    "packaging": ["packaging", "packing", "package", "包装"],
+    "price": ["price", "pricing", "报价", "价格", "价位"],
+    "moq": ["moq", "minimum order", "起订", "起订量"],
+    "carton": ["carton", "ctn", "箱规", "装箱", "外箱"],
+    "certification": ["certification", "certificate", "certified", "认证", "证书", "检测"],
+    "delivery": ["delivery", "lead time", "shipping", "交期", "货期", "发货"],
+    "sku": ["sku", "item no", "货号", "款号", "单品", "产品编号"],
+}
+
+CATEGORY_PRESETS_EN: Dict[str, Dict[str, Any]] = {
+    "notebook": {
+        "positioning": ["Everyday writing and study notebooks for school, office and gifting programs."],
+        "range": ["Spiral notebooks", "Soft-cover journals", "Subject notebooks", "Pocket memo books"],
+        "scenario": ["Back-to-school sets, office stationery shelves, promotional bundles"],
+        "selling_points": ["Clean cover direction", "Flexible paper ruling", "Easy to build coordinated stationery sets"],
+        "materials": ["Paper cover, PP cover, kraft cover, inner pages by requested GSM"],
+    },
+    "pen": {
+        "positioning": ["High-frequency writing items suited to retail multipacks and school supply programs."],
+        "range": ["Gel pens", "Ballpoint pens", "Color pens", "Mechanical pencils and refill sets"],
+        "scenario": ["Daily writing, exam stationery, office desks, gift stationery packs"],
+        "selling_points": ["Smooth writing feel", "Color and tip-size options", "Good bundle compatibility"],
+        "materials": ["Plastic barrel, soft grip, metal clip options, refillable structures when requested"],
+    },
+    "eraser": {
+        "positioning": ["Compact correction essentials for student stationery and value packs."],
+        "range": ["PVC-free erasers", "Novelty shaped erasers", "Dust-free erasers", "Eraser multipacks"],
+        "scenario": ["School lists, exam kits, checkout add-ons, children’s stationery ranges"],
+        "selling_points": ["Soft erasing feel", "Low residue direction", "Colorful shapes for retail appeal"],
+    },
+    "ruler": {
+        "positioning": ["Measuring tools for school kits, office drawers and drawing sets."],
+        "range": ["Plastic rulers", "Flexible rulers", "Geometry sets", "Transparent measuring tools"],
+        "scenario": ["Classroom use, exam preparation, drafting, student value packs"],
+        "selling_points": ["Clear scale visibility", "Lightweight structure", "Easy set combination"],
+    },
+    "correction": {
+        "positioning": ["Practical correction tools for school, office and study desks."],
+        "range": ["Mini correction tape", "Ergonomic tape", "Refillable tape", "Multi-pack correction sets"],
+        "scenario": ["Homework correction, office paperwork, exam preparation, desk stationery"],
+        "selling_points": ["Clean coverage", "Portable size", "Good for multi-pack retail"],
+    },
+    "school bag": {
+        "positioning": ["Daily carry products designed for school, travel and student lifestyle assortments."],
+        "range": ["Backpacks", "Lunch bags", "Drawstring bags", "Lightweight student bags"],
+        "scenario": ["Back-to-school programs, student travel, campus retail, gift bundles"],
+        "selling_points": ["Comfortable carrying direction", "Compartment planning", "Themeable exterior design"],
+        "materials": ["Polyester, nylon, oxford fabric, padded straps when required"],
+    },
+    "pen case": {
+        "positioning": ["Storage accessories for coordinated stationery collections and school sets."],
+        "range": ["Zipper pencil cases", "EVA cases", "Transparent pouches", "Multi-compartment cases"],
+        "scenario": ["Student desks, school bags, gift stationery sets, retail shelf programs"],
+        "selling_points": ["Compact storage", "Easy color matching", "Good add-on category for stationery ranges"],
+    },
+    "paint": {
+        "positioning": ["Creative art supplies for school projects, hobby painting and children’s activity programs."],
+        "range": ["Watercolor sets", "Acrylic paint sets", "Poster paints", "Brush and palette kits"],
+        "scenario": ["Art classes, craft activities, creative gifts, seasonal DIY programs"],
+        "selling_points": ["Bright color presentation", "Set-based selling", "Easy pairing with brushes and paper"],
+        "materials": ["Water-based formulas and packaging details can be specified by real product data"],
+    },
+    "sharpener": {
+        "positioning": ["Small desk essentials for school lists, pencil kits and checkout displays."],
+        "range": ["Single-hole sharpeners", "Double-hole sharpeners", "Container sharpeners", "Novelty sharpeners"],
+        "scenario": ["Classroom use, pencil kits, retail counters, children’s stationery sets"],
+        "selling_points": ["Portable size", "Simple replacement SKU", "Works well in multi-piece stationery bundles"],
+    },
+    "balloon": {
+        "positioning": ["Core visual decoration items for party programs and seasonal celebration ranges."],
+        "range": ["Latex balloons", "Foil balloons", "Number balloons", "Balloon arch kits"],
+        "scenario": ["Birthday parties, weddings, retail party kits, seasonal events"],
+        "selling_points": ["Coordinated color sets", "Strong visual impact", "Easy bundle planning"],
+    },
+    "tableware": {
+        "positioning": ["Disposable table setup products for party, picnic and event catering assortments."],
+        "range": ["Paper plates", "Cups", "Napkins", "Straws", "Cutlery sets", "Table covers"],
+        "scenario": ["Party tables, buffet setup, outdoor events, themed retail kits"],
+        "selling_points": ["Complete table solution", "Color-matched merchandising", "Easy cleanup for end users"],
+    },
+}
+
+CATEGORY_PRESETS_ZH: Dict[str, Dict[str, Any]] = {
+    "笔记本": {
+        "positioning": ["面向学习、办公和礼品组合的高频书写类产品。"],
+        "range": ["线圈本", "软抄本", "主题本", "便携记事本"],
+        "scenario": ["开学季、办公采购、文具礼盒、零售陈列"],
+        "selling_points": ["封面风格可延展", "内页规格灵活", "适合成套销售"],
+    },
+    "笔": {
+        "positioning": ["适合学校、办公和组合包的基础书写工具。"],
+        "range": ["中性笔", "圆珠笔", "彩色笔", "自动铅笔及替芯"],
+        "scenario": ["日常书写、考试文具、办公桌面、礼品文具包"],
+        "selling_points": ["书写顺滑", "颜色和笔尖规格可选", "便于做多支装"],
+    },
+    "橡皮": {
+        "positioning": ["学生文具和组合套装中的基础修正类单品。"],
+        "range": ["无 PVC 橡皮", "造型橡皮", "少屑橡皮", "多枚装橡皮"],
+        "scenario": ["学生清单、考试套装、收银台加购、儿童文具系列"],
+        "selling_points": ["擦除体验柔和", "造型和颜色适合零售展示", "适合小包装组合"],
+    },
+    "尺": {
+        "positioning": ["适合学生、办公和绘图套装的测量工具。"],
+        "range": ["直尺", "软尺", "几何套尺", "透明测量工具"],
+        "scenario": ["课堂、考试准备、绘图、学生套装"],
+        "selling_points": ["刻度清晰", "结构轻便", "容易和文具套装组合"],
+    },
+    "书包": {
+        "positioning": ["面向学生日常通勤、校园生活和开学季项目的背包类产品。"],
+        "range": ["双肩包", "午餐包", "抽绳包", "轻便学生包"],
+        "scenario": ["开学季、学生出行、校园零售、礼品组合"],
+        "selling_points": ["背负舒适", "分层收纳", "外观主题可延展"],
+    },
+}
+
+
+def detect_style_family(prompt: str, theme: str = "", language: str = "en") -> str:
+    text = f"{prompt} {theme}".lower()
+    checks = [
+        ("minimal", ["minimal", "clean", "simple", "editorial", "极简", "简洁", "留白", "画册"]),
+        ("luxury", ["luxury", "premium", "high-end", "elegant", "高级", "高端", "轻奢", "质感"]),
+        ("playful", ["cute", "kids", "playful", "colorful", "cartoon", "children", "可爱", "儿童", "活泼", "卡通", "彩色"]),
+        ("festive", ["festive", "party", "holiday", "christmas", "celebration", "节庆", "派对", "圣诞", "庆典", "节日"]),
+        ("nature", ["natural", "eco", "organic", "warm", "wood", "green", "自然", "环保", "温润", "木质", "绿色"]),
+        ("tech", ["tech", "digital", "smart", "industrial", "科技", "智能", "数码", "工业", "蓝色科技"]),
+    ]
+    for family, keys in checks:
+        if any(k in text for k in keys):
+            return family
+    return "commercial"
+
+
+def style_profile_for(plan: DeckPlan | str) -> Dict[str, Any]:
+    family = plan if isinstance(plan, str) else getattr(plan, "style_family", "commercial")
+    return STYLE_PROFILES.get(family, STYLE_PROFILES["commercial"])
+
+
+def extract_page1_description(prompt: str) -> str:
+    text = clean_prompt(prompt)
+    match = re.search(r"Page\s*1\s*[:：]\s*(.+?)(?:\s+Pages?\s+\d|\s+Page\s+2\s*[:：]|$)", text, flags=re.IGNORECASE)
+    if match:
+        return match.group(1).strip(" .。;；")
+    match = re.search(r"(?:公司介绍|企业介绍)\s*[:：-]?\s*([^。.;；]{4,120})", text, flags=re.IGNORECASE)
+    if match:
+        return match.group(1).strip(" .。;；")
+    return ""
+
+
+def strip_negated_requirements(text: str) -> str:
+    # 先移除“不要/不需要/no/without ...”这一类否定字段，避免用户说“不要价格 MOQ 箱规”时反而被识别成必填字段。
+    text = re.sub(r"(?:不要|不需要|无需|不用|不含|不写|别写|去掉)[^。.;；,，]{0,60}", " ", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b(?:no|not|without|exclude|remove)\b[^。.;；,，]{0,60}", " ", text, flags=re.IGNORECASE)
+    return text
+
+
+def extract_requested_sections(prompt: str) -> List[str]:
+    raw = clean_prompt(prompt)
+    lower_raw = raw.lower()
+    if any(k in lower_raw for k in ["只要产品方向", "只放产品方向", "only product positioning", "product direction only"]):
+        return ["positioning"]
+    text = strip_negated_requirements(lower_raw)
+    requested: List[str] = []
+    for key, patterns in REQUESTED_SECTION_PATTERNS.items():
+        if any(p.lower() in text for p in patterns):
+            requested.append(key)
+    # 如果用户明确说“详情页/参数/规格”，增加更具体的字段，但仍不凭空写价格 MOQ。
+    if any(k in text for k in ["spec", "parameter", "规格", "参数"]):
+        for key in ["materials", "colors", "carton"]:
+            if key not in requested:
+                requested.append(key)
+    return requested
+
+def match_category_preset(category: str, language: str) -> Dict[str, Any]:
+    key = category.lower().strip()
+    presets = CATEGORY_PRESETS_EN if language == "en" else CATEGORY_PRESETS_ZH
+    for pattern, preset in presets.items():
+        if pattern.lower() in key:
+            return preset
+    return {}
+
+
+def generic_category_value(category: str, theme: str, section_key: str, language: str) -> List[str]:
+    title = title_case_category(category) if language == "en" else category
+    theme_text = title_case_category(theme) if language == "en" else theme
+    if language == "en":
+        generic = {
+            "positioning": [f"{title} presented as a focused catalog category for buyer review."],
+            "range": [f"Core {title} direction", "Coordinated variants", "Bundle-ready options"],
+            "scenario": [f"Retail display, seasonal programs and {theme_text.lower()} buyer communication"],
+            "selling_points": ["Clear visual identity", "Flexible style options", "Easy to expand with real SKU data"],
+            "materials": ["Material details should be filled from confirmed product specifications."],
+            "colors": ["Color direction should follow the requested visual theme and real product options."],
+            "customization": ["Logo, packaging and set configuration can be added after supplier confirmation."],
+            "packaging": ["Packaging format should be filled from real product data."],
+            "price": ["Price tiers require confirmed quotation data before buyer-facing release."],
+            "moq": ["MOQ should be filled only after supplier confirmation."],
+            "carton": ["Carton size and packing quantity require confirmed logistics data."],
+            "certification": ["Certification details should match the target market and verified documents."],
+            "delivery": ["Lead time should be confirmed by production schedule and order quantity."],
+            "sku": [f"Representative {title} items", "Color/style variants", "Set or bundle options"],
+            "audience": ["Useful for fast category screening before final SKU selection."],
+        }
+    else:
+        generic = {
+            "positioning": [f"{title} 作为目录册中的独立类目，用于客户快速判断方向。"],
+            "range": [f"{title}基础款", "颜色/规格延展款", "组合装方向"],
+            "scenario": [f"零售陈列、季节项目和{theme_text}客户沟通"],
+            "selling_points": ["视觉方向清晰", "款式延展灵活", "便于后续补真实 SKU 数据"],
+            "materials": ["材质信息需根据真实商品规格补充。"],
+            "colors": ["色彩方向应结合用户主题和真实商品可选色。"],
+            "customization": ["Logo、包装、组合方式需在供应商确认后补充。"],
+            "packaging": ["包装方式需以真实商品资料为准。"],
+            "price": ["报价需以确认后的价格表为准，不在初稿中臆造。"],
+            "moq": ["MOQ 需供应商确认后填写。"],
+            "carton": ["箱规和装箱数量需以物流资料为准。"],
+            "certification": ["认证信息需匹配目标市场并附真实证书。"],
+            "delivery": ["交期需结合生产排期和订单数量确认。"],
+            "sku": [f"{title}代表款", "颜色/规格延展款", "组合套装方向"],
+            "audience": ["适合客户快速筛选类目方向，再进入具体 SKU 确认。"],
+        }
+    return generic.get(section_key, generic["positioning"])
+
+
+def category_section_items(category: str, theme: str, section_key: str, language: str) -> List[str]:
+    preset = match_category_preset(category, language)
+    if section_key in preset:
+        return list(preset[section_key])
+    return generic_category_value(category, theme, section_key, language)
+
+
+def build_category_sections(category: str, theme: str, language: str, requested_sections: List[str]) -> List[Dict[str, Any]]:
+    labels = SECTION_LABELS[language]
+    # 没有被用户点名的价格、MOQ、箱规、认证、交期不主动出现，避免目录册看起来像硬模板。
+    if requested_sections:
+        cleaned_requested = [k for k in requested_sections if k != "positioning"]
+        if requested_sections == ["positioning"]:
+            section_keys = ["positioning"]
+        elif len(cleaned_requested) >= 4:
+            # 用户点名的字段优先，不用“产品定位”挤掉用户明确要求的 MOQ/认证/包装等字段。
+            section_keys = cleaned_requested
+        else:
+            section_keys = ["positioning"] + cleaned_requested
+    else:
+        section_keys = ["positioning", "range"]
+        # 对 party/场景型需求，可以加场景；普通商品不强加“适用场景”。
+        if any(k in f"{theme} {category}".lower() for k in ["party", "festive", "holiday", "派对", "节庆", "节日"]):
+            section_keys.append("scenario")
+    result: List[Dict[str, Any]] = []
+    seen = set()
+    for key in section_keys:
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append({"title": labels.get(key, key), "items": category_section_items(category, theme, key, language)})
+    return result[:4]
+
+
+def build_company_intro_sections(prompt: str, brand: str, theme: str, language: str, requested_sections: List[str]) -> Tuple[List[str], List[Dict[str, Any]]]:
+    desc = extract_page1_description(prompt)
+    if language == "en":
+        cleaned = re.sub(r"^Company introduction for\s+[^-–—:：]+\s*[-–—:：]?\s*", "", desc, flags=re.IGNORECASE).strip()
+        bullets = [cleaned] if cleaned else [f"Supplier introduction for {title_case_category(theme)} catalog communication."]
+        sections = [
+            {"title": "Catalog Role", "items": ["Opening page for company positioning and buyer context"]},
+            {"title": "Presentation Focus", "items": ["Keep the introduction concise; product pages carry the main category content"]},
+        ]
+    else:
+        cleaned = re.sub(r"^(公司介绍|企业介绍)\s*[:：-]?\s*", "", desc, flags=re.IGNORECASE).strip()
+        bullets = [cleaned] if cleaned else [f"用于{theme}目录册沟通的供应商介绍页。"]
+        sections = [
+            {"title": "页面作用", "items": ["用于说明公司定位和目录背景"]},
+            {"title": "表达重点", "items": ["公司介绍保持简洁，主要内容放在后续产品页"]},
+        ]
+    if "certification" in requested_sections:
+        sections.append({"title": SECTION_LABELS[language]["certification"], "items": category_section_items(brand, theme, "certification", language)})
+    return bullets[:3], sections[:3]
+
+
+def choose_slide_variant(style_family: str, index: int, layout: str) -> str:
+    if layout in {"company_intro", "cover_catalog"}:
+        return layout
+    sequences = {
+        "minimal": ["image_right", "image_top", "image_left"],
+        "luxury": ["image_left", "image_right", "image_top"],
+        "playful": ["image_top", "image_left", "image_right"],
+        "festive": ["image_left", "image_top", "image_right"],
+        "nature": ["image_right", "image_left", "image_top"],
+        "tech": ["image_right", "image_top", "image_left"],
+        "commercial": ["image_left", "image_right", "image_top"],
+    }
+    seq = sequences.get(style_family, sequences["commercial"])
+    return seq[(index - 1) % len(seq)]
+
 def extract_product_categories(prompt: str, language: str) -> List[str]:
     text = clean_prompt(prompt)
     candidates = ""
     patterns = [
-        r"Product\s+categories\s*[:：]\s*(.+?)(?:\.\s|。\s|$)",
-        r"产品类目\s*[:：]\s*(.+?)(?:\.\s|。\s|$)",
-        r"商品类目\s*[:：]\s*(.+?)(?:\.\s|。\s|$)",
-        r"类目\s*[:：]\s*(.+?)(?:\.\s|。\s|$)",
+        r"Product\s+categories\s*[:：]\s*(.+?)(?:[\.。]\s*|$)",
+        r"产品类目\s*[:：]\s*(.+?)(?:[\.。]\s*|$)",
+        r"商品类目\s*[:：]\s*(.+?)(?:[\.。]\s*|$)",
+        r"类目\s*[:：]\s*(.+?)(?:[\.。]\s*|$)",
     ]
     for pattern in patterns:
         match = re.search(pattern, text, flags=re.IGNORECASE)
@@ -373,110 +809,166 @@ def generated_categories(theme: str, language: str, needed: int) -> List[str]:
 
 
 def english_category_content(category: str, theme: str) -> List[Dict[str, Any]]:
-    key = category.lower()
-    presets: Dict[str, Dict[str, List[str] | str]] = {
-        "balloons": {
-            "occasion": "Birthday parties, weddings, retail party kits, seasonal events",
-            "points": ["Coordinated color sets", "Easy arch and garland setup", "Strong visual impact for party scenes"],
-            "skus": "Latex balloons, foil balloons, balloon arch kits, number balloons",
-            "packaging": "Polybag, color box, display pack, customized set card",
-        },
-        "rain curtains": {
-            "occasion": "Backdrop walls, photo booths, stage decoration, holiday displays",
-            "points": ["Shiny metallic finish", "Quick installation", "Strong shelf appeal for party aisles"],
-            "skus": "Foil fringe curtains, metallic rain curtains, themed backdrop sets",
-            "packaging": "Flat bag, header card, hanging display pack",
-        },
-        "candles": {
-            "occasion": "Birthday cakes, celebration tables, gift sets, party supplies shelves",
-            "points": ["Bright color choices", "Multiple number and novelty shapes", "Suitable for bundled selling"],
-            "skus": "Number candles, spiral candles, glitter candles, themed cake candles",
-            "packaging": "Blister card, color box, retail hanging card",
-        },
-        "bunting": {
-            "occasion": "Room decoration, garden parties, birthdays, graduation events",
-            "points": ["Ready-to-hang decoration", "Reusable visual element", "Flexible color and pattern matching"],
-            "skus": "Paper garlands, triangle bunting, letter banners, themed hanging decor",
-            "packaging": "OPP bag, header card, compact retail pack",
-        },
-        "hats": {
-            "occasion": "Birthday parties, kids events, costume parties, celebration photos",
-            "points": ["Lightweight wearing experience", "Bright party colors", "High impulse-purchase potential"],
-            "skus": "Cone hats, crowns, themed headwear, party cap sets",
-            "packaging": "Stacked polybag, display box, party set bundle",
-        },
-        "party blowers": {
-            "occasion": "Kids parties, birthday tables, New Year countdown, party favor bags",
-            "points": ["Fun interactive item", "Low-cost add-on SKU", "Good for multi-piece packs"],
-            "skus": "Paper blowers, foil blowers, themed party horns, favor pack blowers",
-            "packaging": "Polybag set, blister card, counter display box",
-        },
-        "tableware": {
-            "occasion": "Buffet tables, birthday parties, picnics, event catering",
-            "points": ["Complete disposable table setup", "Color-matched party solution", "Easy cleanup for event users"],
-            "skus": "Paper plates, paper cups, napkins, straws, cutlery sets, table covers",
-            "packaging": "Shrink pack, color sleeve, full party tableware kit",
-        },
-        "cos costumes": {
-            "occasion": "Cosplay events, Halloween parties, stage activities, themed celebrations",
-            "points": ["High visual recognition", "Good seasonal promotion potential", "Supports accessory combinations"],
-            "skus": "Role-play costumes, capes, masks, themed accessories, costume kits",
-            "packaging": "Garment bag, color insert, boxed costume set",
-        },
-        "other party decorations": {
-            "occasion": "Complete party scene building, seasonal programs, one-stop retail displays",
-            "points": ["Broad category coverage", "Easy cross-selling with core party SKUs", "Flexible theme extension"],
-            "skus": "Confetti, banners, hanging swirls, photo props, party favors, table decor",
-            "packaging": "Mixed set pack, retail display box, themed bundle solution",
-        },
-    }
-
-    chosen = None
-    for k, v in presets.items():
-        if k in key:
-            chosen = v
-            break
-    if chosen is None:
-        chosen = {
-            "occasion": f"{title_case_category(theme)} parties, retail displays, seasonal promotions",
-            "points": ["Clear category positioning", "Flexible color and style options", "Suitable for catalog and retail programs"],
-            "skus": f"Core {category} items, bundle sets, seasonal variants",
-            "packaging": "Polybag, color box, display pack, customized retail set",
-        }
-    return [
-        {"title": "Occasion Fit", "items": [str(chosen["occasion"])]},
-        {"title": "Selling Points", "items": list(chosen["points"])},
-        {"title": "Suggested SKUs", "items": [str(chosen["skus"])]},
-        {"title": "Packaging & Sourcing Notes", "items": [str(chosen["packaging"]), "MOQ, carton size, delivery time and certification can be added from real product data."]},
-    ]
+    # Backward-compatible wrapper. New generation uses build_category_sections().
+    return build_category_sections(category, theme, "en", [])
 
 
 def chinese_category_content(category: str, theme: str) -> List[Dict[str, Any]]:
-    return [
-        {"title": "适用场景", "items": ["零售陈列、节庆促销、客户初筛、业务目录册沟通"]},
-        {"title": "核心卖点", "items": ["视觉统一", "支持颜色/包装/组合定制", "适合套装化销售"]},
-        {"title": "建议 SKU", "items": [f"{category}主推款、组合款、陈列款、季节款"]},
-        {"title": "采购备注", "items": ["真实图片、价格、MOQ、箱规、认证和交期可由业务继续补充。"]},
-    ]
-
+    # Backward-compatible wrapper. New generation uses build_category_sections().
+    return build_category_sections(category, theme, "zh", [])
 
 def make_image_prompt(slide: SlidePlan, plan: DeckPlan) -> str:
-    no_text = "no text, no watermark, no logo"
-    style = "commercial product catalog photography, realistic, premium lighting, clean warm white background, high detail"
+    """
+    图片生成原则：
+    1. 防抄袭、侵权，不等于禁止场景；用户明确要求场景时允许生成场景。
+    2. 用户只写 theme/catalog/product category 时，主题只影响色彩与氛围，不能自动扩散成派对房间或活动现场。
+    3. 非派对类产品不能因为 theme 里有 party/festive 就被强行放进派对背景。
+    4. 防抄袭重点放在原创构图、无品牌、无商标、无 IP、无现成包装、无图库复刻。
+    5. 图片里不出现文字，避免乱码。
+    """
+    scene_mode = os.getenv("PPT_IMAGE_SCENE_MODE", "auto").strip().lower()
+    subject = (slide.category or slide.title or plan.theme or "product").strip()
+
+    user_text = " ".join(
+        str(x or "")
+        for x in [
+            getattr(plan, "raw_prompt", ""),
+            getattr(plan, "user_prompt", ""),
+            getattr(plan, "prompt", ""),
+            plan.theme,
+            slide.title,
+            slide.category,
+        ]
+    ).lower()
+
+    scene_keywords_en = [
+        "scene",
+        "lifestyle",
+        "in use",
+        "use scenario",
+        "party scene",
+        "birthday party",
+        "party setup",
+        "room setup",
+        "event setup",
+        "table setting",
+        "decorated room",
+        "retail display",
+        "showroom",
+        "background scene",
+        "with background",
+    ]
+    scene_keywords_zh = [
+        "场景",
+        "使用场景",
+        "生活方式",
+        "派对场景",
+        "生日派对",
+        "派对布置",
+        "房间布置",
+        "活动现场",
+        "陈列场景",
+        "展示场景",
+        "桌面布置",
+        "带背景",
+        "有背景",
+    ]
+    explicit_scene_requested = any(k in user_text for k in scene_keywords_en + scene_keywords_zh)
+
+    def should_use_lifestyle_scene() -> bool:
+        if scene_mode in {"product_only", "packshot"}:
+            return False
+        if scene_mode in {"lifestyle", "scene"}:
+            return True
+        # auto 模式：只有用户明确要场景时才生成场景。
+        return explicit_scene_requested
+
+    use_scene = should_use_lifestyle_scene()
+
+    originality_guard_en = (
+        "original generic commercial product design, original composition, "
+        "not based on any existing brand, not copied from any stock photo, "
+        "no trademark, no copyrighted character, no famous IP, "
+        "no recognizable branded packaging, no imitation of existing catalog photos"
+    )
+    safety_negative_en = (
+        "no text, no watermark, no logo, no brand name, no readable label, "
+        "no people, no celebrity, no trademark, no copyrighted artwork, "
+        "no famous character, no website screenshot"
+    )
+    originality_guard_zh = (
+        "原创通用商业产品设计，原创构图，不基于任何现有品牌，"
+        "不复制图库照片，不模仿现有目录册图片，不出现商标、品牌包装、IP角色、版权角色"
+    )
+    safety_negative_zh = (
+        "无文字、无水印、无logo、无品牌名、无可读标签、无人像、无明星、无商标、无版权图案、无网页截图"
+    )
+
     if plan.language == "en":
         if slide.layout == "company_intro":
+            if use_scene:
+                return (
+                    f"Original premium commercial catalog opening scene for {plan.brand_or_company}. "
+                    f"A clean, generic, non-branded product display environment with representative products, "
+                    f"professional catalog lighting, premium composition, suitable for a supplier introduction page. "
+                    f"The scene may reflect the requested theme: {plan.theme}, but must not copy any real catalog or branded display. "
+                    f"{originality_guard_en}. {safety_negative_en}."
+                )
             return (
-                f"Premium commercial catalog opening image for {plan.brand_or_company}, {plan.theme} product catalog, "
-                f"assorted party supplies and festive decorations arranged in a clean showroom composition, {style}, {no_text}"
+                f"Premium commercial catalog opening product arrangement for {plan.brand_or_company}. "
+                f"Assorted representative generic non-branded products, clean studio background, "
+                f"premium catalog lighting, polished supplier introduction image. "
+                f"Use subtle visual accents inspired by {plan.theme}; do not create a full venue unless the user explicitly asks for a scene. "
+                f"{originality_guard_en}. {safety_negative_en}."
+            )
+
+        if use_scene:
+            return (
+                f"Original commercial catalog lifestyle scene for {subject}. "
+                f"The product must be the clear main subject. "
+                f"Create a clean, generic, non-branded scene that matches the user's requested theme: {plan.theme}. "
+                f"Use tasteful props and background only when they support the product category. "
+                f"Do not let the background overpower the product. "
+                f"{originality_guard_en}. {safety_negative_en}."
+            )
+
+        return (
+            f"Commercial e-commerce catalog product photography of {subject}. "
+            f"Isolated product packshot, clean seamless warm-white or light-gray background, "
+            f"studio lighting, realistic materials, sharp details, premium catalog composition. "
+            f"Use only subtle color accents inspired by {plan.theme}; do not invent a full event venue unless the user explicitly asks for a scene. "
+            f"{originality_guard_en}. {safety_negative_en}."
+        )
+
+    if slide.layout == "company_intro":
+        if use_scene:
+            return (
+                f"{plan.brand_or_company} 的原创商业目录册开场场景图。"
+                f"干净、通用、无品牌的产品展示环境，展示代表性产品，适合供应商介绍页。"
+                f"场景可以体现用户要求的主题：{plan.theme}，但不能复制真实目录册、广告或品牌陈列。"
+                f"{originality_guard_zh}。{safety_negative_zh}。"
             )
         return (
-            f"Commercial product catalog photography of {slide.category}, party supplies and festive decoration products, "
-            f"clean e-commerce catalog composition, cohesive {plan.theme} style, {style}, {no_text}"
+            f"{plan.brand_or_company} 商业目录册开场产品陈列图，原创通用无品牌产品，"
+            f"干净棚拍背景，高级目录册灯光，可以参考“{plan.theme}”的轻微色彩氛围，"
+            f"但不要在用户未明确要求时生成完整场景背景。"
+            f"{originality_guard_zh}。{safety_negative_zh}。"
         )
-    if slide.layout == "company_intro":
-        return f"商业商品目录册封面图，{plan.theme}，产品陈列，干净背景，高级灯光，无文字，无水印，无logo"
-    return f"{slide.category} 商品目录册摄影图，干净背景，高级灯光，商业产品陈列，无文字，无水印，无logo"
 
+    if use_scene:
+        return (
+            f"{subject} 的原创商业目录册场景图。"
+            f"产品必须是主体，场景应符合用户要求的主题：{plan.theme}。"
+            f"可以使用适度道具和背景，但不能喧宾夺主，不能模仿现有广告、现有包装或图库构图。"
+            f"{originality_guard_zh}。{safety_negative_zh}。"
+        )
+
+    return (
+        f"{subject} 的商业电商目录册产品图。"
+        f"只展示产品本体，干净的暖白色或浅灰色无缝背景，棚拍灯光，真实材质，细节清晰。"
+        f"可以参考“{plan.theme}”的轻微色彩氛围，但不要在用户未明确要求时生成完整场景背景。"
+        f"{originality_guard_zh}。{safety_negative_zh}。"
+    )
 
 def build_deck_plan(prompt: str) -> DeckPlan:
     prompt = clean_prompt(prompt)
@@ -487,77 +979,89 @@ def build_deck_plan(prompt: str) -> DeckPlan:
     brand = extract_brand_or_company(prompt, language)
     theme = extract_theme(prompt, language)
     style = extract_style(prompt, language)
+    style_family = detect_style_family(prompt, theme, language)
+    requested_sections = extract_requested_sections(prompt)
     categories = extract_product_categories(prompt, language)
 
-    has_explicit_page_plan = bool(re.search(r"Page\s+1\s*[:：]|Pages\s+\d+\s*[-–—]\s*\d+", prompt, flags=re.IGNORECASE))
+    has_explicit_page_plan = bool(re.search(r"Page\s+1\s*[:：]|Pages?\s+\d+\s*[-–—]\s*\d+", prompt, flags=re.IGNORECASE))
     has_company_intro = bool(re.search(r"company\s+introduction|公司介绍|企业介绍", prompt, flags=re.IGNORECASE))
-    mode = "detailed" if (has_explicit_page_plan or categories) else "simple"
+    has_cover_request = bool(re.search(r"cover\s+page|封面|首页", prompt, flags=re.IGNORECASE))
+    mode = "detailed" if (has_explicit_page_plan or categories or requested_sections) else "simple"
 
     slides: List[SlidePlan] = []
-    if has_company_intro or (mode == "detailed" and language == "en"):
-        if language == "en":
-            title = brand
-            subtitle = f"{title_case_category(theme)} Product Catalog"
-            bullets = [
-                "Premier party supplies and festive decorations supplier",
-                "Integrated category planning for seasonal, retail and event programs",
-                "Catalog structure follows the user's requested page order and product categories",
-            ]
-            sections = [
-                {"title": "Company Positioning", "items": ["One-stop supplier for party supplies, decorations and celebration-ready product programs"]},
-                {"title": "Catalog Focus", "items": ["Commercial product presentation", "Clear category pages", "English-only buyer-facing copy"]},
-                {"title": "Buyer Value", "items": ["Fast category overview", "Scenario-based product planning", "Ready for adding real SKUs, MOQ, pricing and carton data"]},
-            ]
-        else:
-            title = brand
-            subtitle = f"{theme}商品目录册"
-            bullets = ["供应商介绍", "商品目录册结构根据用户需求生成", "后续可补充真实 SKU、报价、MOQ、箱规和认证"]
-            sections = [
-                {"title": "公司定位", "items": ["面向客户的商品目录册初稿"]},
-                {"title": "目录重点", "items": ["按类目展示", "图文结合", "便于业务二次补充"]},
-            ]
-        slides.append(SlidePlan(page=1, layout="company_intro", title=title, subtitle=subtitle, bullets=bullets, sections=sections))
-    else:
-        if language == "en":
-            title = title_case_category(theme)
-            subtitle = "Product Catalog"
-            sections = [
-                {"title": "Catalog Goal", "items": ["Create a concise product catalog for buyer communication"]},
-                {"title": "Next Step", "items": ["Add real product images, pricing, MOQ, carton size and certification details"]},
-            ]
-        else:
-            title = theme
-            subtitle = "商品目录册"
-            sections = [
-                {"title": "目录目标", "items": ["用于业务初稿沟通和商品方向展示"]},
-                {"title": "后续补充", "items": ["真实商品图、报价、MOQ、箱规、认证、交期"]},
-            ]
-        slides.append(SlidePlan(page=1, layout="cover_catalog", title=title, subtitle=subtitle, sections=sections))
 
-    remaining = page_count - 1
+    # 只有用户明确要求公司介绍时才生成公司介绍页；不再因为“英文详细需求”自动塞一页固定公司模板。
+    if has_company_intro:
+        bullets, sections = build_company_intro_sections(prompt, brand, theme, language, requested_sections)
+        subtitle = f"{title_case_category(theme)} Product Catalog" if language == "en" else f"{theme}商品目录册"
+        slides.append(
+            SlidePlan(
+                page=1,
+                layout="company_intro",
+                title=brand,
+                subtitle=subtitle,
+                bullets=bullets,
+                sections=sections,
+                layout_variant="company_intro",
+            )
+        )
+    else:
+        # 若用户给的类目数量已经覆盖全部页数，就不额外生成封面。
+        # 若未给足类目或明确要封面，则保留一页目录册封面。
+        should_add_cover = has_cover_request or not categories or len(categories) < page_count
+        if should_add_cover and page_count > 0:
+            if language == "en":
+                title = title_case_category(theme)
+                subtitle = "Product Catalog"
+                sections = [
+                    {"title": "Catalog Direction", "items": ["A concise catalog draft built from the user's description"]},
+                ]
+                if requested_sections:
+                    sections.append({"title": "Requested Detail Focus", "items": [SECTION_LABELS[language].get(k, k) for k in requested_sections[:4]]})
+            else:
+                title = theme
+                subtitle = "商品目录册"
+                sections = [
+                    {"title": "目录方向", "items": ["根据用户描述生成的商品目录册初稿"]},
+                ]
+                if requested_sections:
+                    sections.append({"title": "本次重点字段", "items": [SECTION_LABELS[language].get(k, k) for k in requested_sections[:4]]})
+            slides.append(SlidePlan(page=1, layout="cover_catalog", title=title, subtitle=subtitle, sections=sections, layout_variant="cover_catalog"))
+
+    remaining = page_count - len(slides)
     if remaining > 0:
         category_plan = categories[:remaining]
         if len(category_plan) < remaining:
+            # 只有在页数需要补齐时才生成相关目录页，避免把用户未要求的 MOQ/箱规/认证等字段硬塞进去。
             category_plan.extend(generated_categories(theme, language, remaining - len(category_plan)))
-        for idx, category in enumerate(category_plan[:remaining], start=2):
+        start_page = len(slides) + 1
+        for idx, category in enumerate(category_plan[:remaining], start=start_page):
+            sections = build_category_sections(category, theme, language, requested_sections)
             if language == "en":
-                sections = english_category_content(category, theme)
-                subtitle = "Category Showcase"
-                bullets = [
-                    "Product positioning built from the requested category",
-                    "Image brief is bound to this page, not reused from a generic template",
-                ]
+                subtitle = style_profile_for(style_family)["name_en"]
+                bullets = []
             else:
-                sections = chinese_category_content(category, theme)
-                subtitle = "类目展示页"
-                bullets = ["按当前类目生成独立页面", "图片 brief 与本页类目绑定"]
-            slides.append(SlidePlan(page=idx, layout="category_showcase", title=category, subtitle=subtitle, category=category, bullets=bullets, sections=sections))
+                subtitle = style_profile_for(style_family)["name_zh"]
+                bullets = []
+            slides.append(
+                SlidePlan(
+                    page=idx,
+                    layout="category_showcase",
+                    title=category,
+                    subtitle=subtitle,
+                    category=category,
+                    bullets=bullets,
+                    sections=sections,
+                    layout_variant=choose_slide_variant(style_family, idx, "category_showcase"),
+                )
+            )
 
-    # 强制页码与页数一致，deck_plan 后续作为唯一事实源。
     slides = slides[:page_count]
     for i, slide in enumerate(slides, start=1):
         slide.page = i
         slide.image_key = f"slide_{i:02d}"
+        if not slide.layout_variant:
+            slide.layout_variant = choose_slide_variant(style_family, i, slide.layout)
 
     plan = DeckPlan(
         prompt=prompt,
@@ -570,6 +1074,8 @@ def build_deck_plan(prompt: str) -> DeckPlan:
         mode=mode,
         slides=slides,
         explicit_categories=categories,
+        style_family=style_family,
+        requested_sections=requested_sections,
     )
     briefs: List[ImageBrief] = []
     for slide in plan.slides:
@@ -578,7 +1084,6 @@ def build_deck_plan(prompt: str) -> DeckPlan:
     plan.image_briefs = briefs
     validate_plan_before_render(plan)
     return plan
-
 
 def validate_plan_before_render(plan: DeckPlan) -> None:
     if plan.page_count < 1:
@@ -747,7 +1252,7 @@ class MiniMaxImageClient:
         self.model = os.getenv("MINIMAX_IMAGE_MODEL", "image-01").strip()
         self.timeout = env_int("MINIMAX_IMAGE_TIMEOUT", 180)
         self.response_format = os.getenv("MINIMAX_IMAGE_RESPONSE_FORMAT", "base64").strip().lower()
-        self.prompt_optimizer = env_bool("MINIMAX_PROMPT_OPTIMIZER", True)
+        self.prompt_optimizer = env_bool("MINIMAX_PROMPT_OPTIMIZER", False)
         self.verify_ssl = env_bool("MINIMAX_VERIFY_SSL", True)
         self.network_precheck = env_bool("MINIMAX_NETWORK_PRECHECK", False)
         proxy_url = os.getenv("MINIMAX_PROXY_URL", "").strip()
@@ -938,18 +1443,31 @@ def add_bullet_box(slide, left, top, width, height, lines: List[str], font_size=
     return box
 
 
-def add_section_card(slide, left, top, width, height, title: str, items: List[str], accent=(37, 99, 235), language="en") -> None:
+def add_section_card(
+    slide,
+    left,
+    top,
+    width,
+    height,
+    title: str,
+    items: List[str],
+    accent=(37, 99, 235),
+    language="en",
+    panel=(255, 255, 255),
+    text_color=(15, 23, 42),
+    muted=(71, 85, 105),
+) -> None:
     shape = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, left, top, width, height)
     shape.fill.solid()
-    shape.fill.fore_color.rgb = RGBColor(255, 255, 255)
+    shape.fill.fore_color.rgb = RGBColor(*panel)
     shape.line.color.rgb = RGBColor(226, 232, 240)
     shape.line.width = Pt(1)
     bar = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, Inches(0.07), height)
     bar.fill.solid()
     bar.fill.fore_color.rgb = RGBColor(*accent)
     bar.line.fill.background()
-    add_textbox(slide, left + Inches(0.22), top + Inches(0.14), width - Inches(0.35), Inches(0.28), title, 12.8, True, (15, 23, 42), language=language)
-    add_bullet_box(slide, left + Inches(0.22), top + Inches(0.52), width - Inches(0.42), height - Inches(0.62), items, 9.4 if language == "en" else 9.2, language=language)
+    add_textbox(slide, left + Inches(0.22), top + Inches(0.13), width - Inches(0.35), Inches(0.3), title, 12.4, True, text_color, language=language)
+    add_bullet_box(slide, left + Inches(0.22), top + Inches(0.52), width - Inches(0.42), height - Inches(0.58), items, 9.2 if language == "en" else 9.0, muted, language=language)
 
 
 def add_image(slide, asset: Optional[ImageAsset], left, top, width, height, label: str, language="en") -> None:
@@ -968,102 +1486,130 @@ def add_image(slide, asset: Optional[ImageAsset], left, top, width, height, labe
     add_textbox(slide, left + Inches(0.15), top + height / 2 - Inches(0.16), width - Inches(0.3), Inches(0.4), fallback, 10.5, True, (100, 116, 139), PP_ALIGN.CENTER, language=language)
 
 
+def add_style_accent(slide, plan: DeckPlan) -> None:
+    profile = style_profile_for(plan)
+    accent = profile["accent"]
+    accent2 = profile["accent2"]
+    # 只用轻量装饰，避免喧宾夺主；不同 style_family 呈现不同气质。
+    if plan.style_family in {"playful", "festive"}:
+        for x, y, size, color in [
+            (11.55, 0.22, 0.62, accent2),
+            (12.25, 0.82, 0.34, accent),
+            (0.22, 6.42, 0.46, profile["accent3"]),
+        ]:
+            shp = slide.shapes.add_shape(MSO_SHAPE.OVAL, Inches(x), Inches(y), Inches(size), Inches(size))
+            shp.fill.solid()
+            shp.fill.fore_color.rgb = RGBColor(*color)
+            shp.line.fill.background()
+    elif plan.style_family in {"minimal", "luxury", "nature"}:
+        line = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.64), Inches(0.27), Inches(0.08), Inches(6.68))
+        line.fill.solid()
+        line.fill.fore_color.rgb = RGBColor(*accent)
+        line.line.fill.background()
+    elif plan.style_family == "tech":
+        for y in [0.42, 6.82]:
+            line = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.68), Inches(y), Inches(11.95), Inches(0.018))
+            line.fill.solid()
+            line.fill.fore_color.rgb = RGBColor(*accent2)
+            line.line.fill.background()
+
+
 def add_footer(slide, plan: DeckPlan, page: int) -> None:
     if plan.language == "en":
-        text = f"{plan.brand_or_company} Product Catalog · Page {page}/{plan.page_count}"
+        text = f"{plan.brand_or_company} · {title_case_category(plan.theme)} · {page}/{plan.page_count}"
     else:
-        text = f"{plan.brand_or_company} 商品目录册 · 第 {page}/{plan.page_count} 页"
-    add_textbox(slide, Inches(0.66), Inches(7.08), Inches(12.0), Inches(0.22), text, 8.4, False, (148, 163, 184), language=plan.language)
+        text = f"{plan.brand_or_company} · {plan.theme} · {page}/{plan.page_count}"
+    add_textbox(slide, Inches(0.66), Inches(7.08), Inches(12.0), Inches(0.22), text, 8.2, False, (148, 163, 184), language=plan.language)
+
+
+def section_positions_for(variant: str, count: int) -> List[Tuple[Any, Any, Any, Any]]:
+    count = max(1, min(count, 4))
+    if variant == "image_right":
+        if count == 1:
+            return [(Inches(0.9), Inches(2.05), Inches(4.95), Inches(1.85))]
+        if count == 2:
+            return [(Inches(0.9), Inches(2.0), Inches(4.95), Inches(1.65)), (Inches(0.9), Inches(3.92), Inches(4.95), Inches(1.65))]
+        return [(Inches(0.9), Inches(1.75 + 1.46 * i), Inches(4.95), Inches(1.22)) for i in range(count)]
+    if variant == "image_top":
+        if count == 1:
+            return [(Inches(1.0), Inches(5.08), Inches(11.1), Inches(1.08))]
+        if count == 2:
+            return [(Inches(1.0 + 5.65 * i), Inches(5.02), Inches(5.35), Inches(1.18)) for i in range(2)]
+        return [(Inches(1.0 + (i % 3) * 3.78), Inches(5.0), Inches(3.48), Inches(1.18)) for i in range(min(count, 3))]
+    # image_left default
+    if count == 1:
+        return [(Inches(6.82), Inches(2.05), Inches(5.35), Inches(1.85))]
+    if count == 2:
+        return [(Inches(6.82), Inches(1.85), Inches(5.35), Inches(1.55)), (Inches(6.82), Inches(3.72), Inches(5.35), Inches(1.55))]
+    return [(Inches(6.78), Inches(1.5 + 1.46 * i), Inches(5.55), Inches(1.22)) for i in range(count)]
 
 
 def create_company_intro_slide(prs: Presentation, plan: DeckPlan, slide_plan: SlidePlan, assets: Dict[str, ImageAsset]) -> None:
+    profile = style_profile_for(plan)
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    set_slide_background(slide, (242, 246, 251))
-    add_textbox(slide, Inches(0.72), Inches(0.62), Inches(5.65), Inches(0.78), slide_plan.title, 34, True, (15, 23, 42), language=plan.language)
-    add_textbox(slide, Inches(0.75), Inches(1.44), Inches(5.55), Inches(0.36), slide_plan.subtitle, 16, False, (37, 99, 235), language=plan.language)
-    add_bullet_box(slide, Inches(0.78), Inches(2.05), Inches(5.3), Inches(0.92), slide_plan.bullets, 10.2, language=plan.language)
+    set_slide_background(slide, profile["bg"])
+    add_style_accent(slide, plan)
+    add_textbox(slide, Inches(0.92), Inches(0.62), Inches(5.65), Inches(0.78), slide_plan.title, 34, True, profile["text"], language=plan.language)
+    add_textbox(slide, Inches(0.95), Inches(1.42), Inches(5.55), Inches(0.36), slide_plan.subtitle, 15.5, False, profile["accent"], language=plan.language)
+    if slide_plan.bullets:
+        add_bullet_box(slide, Inches(0.98), Inches(2.02), Inches(5.25), Inches(0.92), slide_plan.bullets, 10.2, profile["muted"], plan.language)
 
     positions = [
-        (Inches(0.75), Inches(3.18), Inches(2.55), Inches(1.58)),
-        (Inches(3.55), Inches(3.18), Inches(2.55), Inches(1.58)),
-        (Inches(0.75), Inches(5.08), Inches(5.35), Inches(1.28)),
+        (Inches(0.95), Inches(3.18), Inches(2.62), Inches(1.5)),
+        (Inches(3.78), Inches(3.18), Inches(2.62), Inches(1.5)),
+        (Inches(0.95), Inches(5.02), Inches(5.45), Inches(1.18)),
     ]
-    accents = [(37, 99, 235), (14, 165, 233), (16, 185, 129)]
+    accents = [profile["accent"], profile["accent2"], profile["accent3"]]
     for idx, section in enumerate(slide_plan.sections[:3]):
         left, top, width, height = positions[idx]
-        add_section_card(slide, left, top, width, height, section["title"], section["items"], accents[idx], plan.language)
+        add_section_card(slide, left, top, width, height, section["title"], section["items"], accents[idx], plan.language, profile["panel"], profile["text"], profile["muted"])
 
-    panel = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(6.55), Inches(0.72), Inches(6.15), Inches(5.95))
+    panel = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(6.68), Inches(0.72), Inches(5.9), Inches(5.9))
     panel.fill.solid()
-    panel.fill.fore_color.rgb = RGBColor(255, 255, 255)
+    panel.fill.fore_color.rgb = RGBColor(*profile["panel"])
     panel.line.color.rgb = RGBColor(226, 232, 240)
-    add_image(slide, assets.get(slide_plan.image_key), Inches(6.78), Inches(0.96), Inches(5.68), Inches(3.2), slide_plan.title, plan.language)
-    if plan.language == "en":
-        callout_title = "Catalog Structure"
-        callout_lines = [
-            f"1 company introduction page",
-            f"{max(0, plan.page_count - 1)} product category pages",
-            "Every product category follows the requested order",
-        ]
-    else:
-        callout_title = "目录结构"
-        callout_lines = ["1 页公司介绍", f"{max(0, plan.page_count - 1)} 页产品类目", "类目顺序按用户需求执行"]
-    add_section_card(slide, Inches(6.78), Inches(4.45), Inches(5.68), Inches(1.55), callout_title, callout_lines, (37, 99, 235), plan.language)
+    add_image(slide, assets.get(slide_plan.image_key), Inches(6.92), Inches(0.98), Inches(5.42), Inches(4.98), slide_plan.title, plan.language)
     add_footer(slide, plan, slide_plan.page)
 
 
 def create_cover_slide(prs: Presentation, plan: DeckPlan, slide_plan: SlidePlan, assets: Dict[str, ImageAsset]) -> None:
+    profile = style_profile_for(plan)
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    set_slide_background(slide, (242, 246, 251))
-    add_textbox(slide, Inches(0.78), Inches(0.74), Inches(5.5), Inches(0.78), slide_plan.title, 32, True, (15, 23, 42), language=plan.language)
-    add_textbox(slide, Inches(0.82), Inches(1.58), Inches(5.2), Inches(0.36), slide_plan.subtitle, 16, False, (37, 99, 235), language=plan.language)
+    set_slide_background(slide, profile["bg"])
+    add_style_accent(slide, plan)
+    title_size = 34 if plan.language == "en" else 32
+    add_textbox(slide, Inches(0.95), Inches(0.84), Inches(5.6), Inches(0.88), slide_plan.title, title_size, True, profile["text"], language=plan.language)
+    add_textbox(slide, Inches(0.98), Inches(1.76), Inches(5.25), Inches(0.36), slide_plan.subtitle, 15.5, False, profile["accent"], language=plan.language)
     for idx, section in enumerate(slide_plan.sections[:2]):
-        add_section_card(slide, Inches(0.82), Inches(2.42 + 1.65 * idx), Inches(5.25), Inches(1.28), section["title"], section["items"], [(37, 99, 235), (16, 185, 129)][idx], plan.language)
-    add_image(slide, assets.get(slide_plan.image_key), Inches(6.55), Inches(0.74), Inches(6.1), Inches(5.8), slide_plan.title, plan.language)
+        add_section_card(slide, Inches(0.98), Inches(2.62 + 1.48 * idx), Inches(5.25), Inches(1.16), section["title"], section["items"], [profile["accent"], profile["accent2"]][idx], plan.language, profile["panel"], profile["text"], profile["muted"])
+    add_image(slide, assets.get(slide_plan.image_key), Inches(6.58), Inches(0.72), Inches(5.95), Inches(5.9), slide_plan.title, plan.language)
     add_footer(slide, plan, slide_plan.page)
 
 
 def create_category_showcase_slide(prs: Presentation, plan: DeckPlan, slide_plan: SlidePlan, assets: Dict[str, ImageAsset]) -> None:
+    profile = style_profile_for(plan)
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    set_slide_background(slide)
-    add_textbox(slide, Inches(0.65), Inches(0.34), Inches(8.2), Inches(0.45), slide_plan.title, 25.5, True, (15, 23, 42), language=plan.language)
-    add_textbox(slide, Inches(0.68), Inches(0.86), Inches(8.0), Inches(0.28), slide_plan.subtitle, 11.5, False, (100, 116, 139), language=plan.language)
-    line = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.65), Inches(1.18), Inches(12.0), Inches(0.028))
-    line.fill.solid()
-    line.fill.fore_color.rgb = RGBColor(37, 99, 235)
-    line.line.fill.background()
+    set_slide_background(slide, profile["bg"])
+    add_style_accent(slide, plan)
+    variant = slide_plan.layout_variant or choose_slide_variant(plan.style_family, slide_plan.page, "category_showcase")
+    title_left = Inches(0.92 if variant != "image_left" else 0.72)
+    add_textbox(slide, title_left, Inches(0.48), Inches(8.8), Inches(0.52), slide_plan.title, 26.5, True, profile["text"], language=plan.language)
+    add_textbox(slide, title_left, Inches(1.02), Inches(8.2), Inches(0.28), slide_plan.subtitle, 10.8, False, profile["muted"], language=plan.language)
 
-    add_image(slide, assets.get(slide_plan.image_key), Inches(0.72), Inches(1.46), Inches(5.6), Inches(3.15), slide_plan.title, plan.language)
-    if plan.language == "en":
-        intro_title = "Page Brief"
-        intro_lines = [
-            f"Category: {slide_plan.category}",
-            "Commercial catalog copy generated for this exact category",
-            "Image prompt is bound to this slide and avoids text inside the image",
-        ]
+    asset = assets.get(slide_plan.image_key)
+    if variant == "image_right":
+        add_image(slide, asset, Inches(6.48), Inches(1.48), Inches(5.72), Inches(4.92), slide_plan.title, plan.language)
+    elif variant == "image_top":
+        add_image(slide, asset, Inches(1.0), Inches(1.45), Inches(11.15), Inches(3.28), slide_plan.title, plan.language)
     else:
-        intro_title = "页面定位"
-        intro_lines = [f"类目：{slide_plan.category}", "内容和图片提示词均绑定当前类目", "图片提示词避免在图中生成文字"]
-    add_section_card(slide, Inches(0.72), Inches(4.82), Inches(5.6), Inches(1.45), intro_title, intro_lines, (37, 99, 235), plan.language)
+        add_image(slide, asset, Inches(0.8), Inches(1.48), Inches(5.6), Inches(4.92), slide_plan.title, plan.language)
 
-    card_positions = [
-        (Inches(6.65), Inches(1.46), Inches(2.85), Inches(1.55)),
-        (Inches(9.8), Inches(1.46), Inches(2.85), Inches(1.55)),
-        (Inches(6.65), Inches(3.25), Inches(2.85), Inches(1.55)),
-        (Inches(9.8), Inches(3.25), Inches(2.85), Inches(1.55)),
-    ]
-    accents = [(37, 99, 235), (14, 165, 233), (16, 185, 129), (245, 158, 11)]
-    for idx, section in enumerate(slide_plan.sections[:4]):
-        left, top, width, height = card_positions[idx]
-        add_section_card(slide, left, top, width, height, section["title"], section["items"], accents[idx], plan.language)
-
-    if plan.language == "en":
-        note = "Ready for real SKU photos, price tiers, MOQ, carton size, certification and delivery details."
-    else:
-        note = "后续可补充真实 SKU 图片、价格梯度、MOQ、箱规、认证和交期。"
-    add_textbox(slide, Inches(6.72), Inches(5.36), Inches(5.75), Inches(0.42), note, 10.2, False, (71, 85, 105), language=plan.language)
+    accents = [profile["accent"], profile["accent2"], profile["accent3"], (245, 158, 11)]
+    sections = slide_plan.sections[:4]
+    for idx, section in enumerate(sections):
+        left, top, width, height = section_positions_for(variant, len(sections))[idx]
+        add_section_card(slide, left, top, width, height, section["title"], section["items"], accents[idx], plan.language, profile["panel"], profile["text"], profile["muted"])
     add_footer(slide, plan, slide_plan.page)
-
 
 def build_presentation(plan: DeckPlan, pptx_path: Path, assets: List[ImageAsset]) -> None:
     prs = Presentation()
@@ -1083,6 +1629,49 @@ def build_presentation(plan: DeckPlan, pptx_path: Path, assets: List[ImageAsset]
     prs.save(str(pptx_path))
 
 
+def workspace_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def choose_render_backend() -> str:
+    backend = os.getenv("PPT_RENDER_BACKEND", "auto").strip().lower()
+    if backend not in {"auto", "pptmaster", "python_pptx"}:
+        raise RuntimeError("PPT_RENDER_BACKEND 只能是 auto / pptmaster / python_pptx")
+    return backend
+
+
+def render_presentation(plan: DeckPlan, pptx_path: Path, assets: List[ImageAsset], run_dir: Path) -> Dict[str, Any]:
+    """渲染 PPT。默认 auto：优先 PPT-master，缺失或失败时降级 python-pptx。"""
+    backend = choose_render_backend()
+    strict = env_bool("PPT_MASTER_STRICT", backend == "pptmaster")
+
+    if backend in {"auto", "pptmaster"}:
+        if build_with_pptmaster is None:
+            if strict:
+                raise RuntimeError("PPT-master 适配器加载失败，且当前要求严格使用 PPT-master。")
+        else:
+            try:
+                info = build_with_pptmaster(plan, pptx_path, assets, run_dir, workspace_root())
+                info["backend"] = "pptmaster"
+                return info
+            except (PPTMasterUnavailable, PPTMasterPipelineError, RuntimeError) as exc:
+                if strict:
+                    raise RuntimeError(f"PPT-master 渲染失败：{exc}") from exc
+                warn_path = run_dir / "PPT_MASTER_FALLBACK.txt"
+                warn_path.write_text(
+                    "PPT-master 渲染不可用，已按 auto 策略降级到 python-pptx。\n"
+                    f"原因：{exc}\n"
+                    "如需强制失败，请设置 PPT_RENDER_BACKEND=pptmaster 或 PPT_MASTER_STRICT=1。\n",
+                    encoding="utf-8",
+                )
+
+    build_presentation(plan, pptx_path, assets)
+    return {
+        "backend": "python_pptx",
+        "fallback_reason": "PPT_RENDER_BACKEND=python_pptx or PPT-master unavailable in auto mode",
+    }
+
+
 def extract_pptx_texts(pptx_path: Path) -> List[str]:
     prs = Presentation(str(pptx_path))
     texts: List[str] = []
@@ -1099,6 +1688,55 @@ def extract_pptx_texts(pptx_path: Path) -> List[str]:
                 except Exception:
                     pass
     return texts
+
+
+def normalize_match_text(text: str) -> str:
+    """Normalize user/category/PPT text for robust category matching.
+
+    PPT-master conversion can split text into runs/lines or replace '&' with
+    natural language. Category validation must not fail because a long title is
+    wrapped, hyphenated, or extracted with extra whitespace.
+    """
+    value = (text or "").lower().replace("&", " and ")
+    value = re.sub(r"[^0-9a-z\u3400-\u4dbf\u4e00-\u9fff]+", "", value)
+    return value
+
+
+def category_match_tokens(text: str) -> List[str]:
+    raw = (text or "").lower().replace("&", " and ")
+    words = re.findall(r"[0-9a-z\u3400-\u4dbf\u4e00-\u9fff]+", raw)
+    stop = {"and", "or", "of", "for", "with", "the", "a", "an", "other"}
+    return [w for w in words if w not in stop and len(w) > 1]
+
+
+def category_present(category: str, candidates: Iterable[str]) -> bool:
+    expected = normalize_match_text(category)
+    if not expected:
+        return True
+    normalized_candidates = [normalize_match_text(c) for c in candidates if c]
+    if any(expected in c or c in expected for c in normalized_candidates if c):
+        return True
+
+    expected_tokens = category_match_tokens(category)
+    if not expected_tokens:
+        return False
+    for cand in candidates:
+        cand_tokens = set(category_match_tokens(cand))
+        if cand_tokens and all(token in cand_tokens for token in expected_tokens):
+            return True
+    return False
+
+
+def expected_explicit_categories_for_plan(plan: DeckPlan) -> List[str]:
+    """Return explicit categories that are expected to appear as category pages.
+
+    When page 1 is company intro/cover, capacity is the number of actual
+    category slides, not simply page_count - 1. This avoids false failures for
+    decks that intentionally use all pages as category pages or use a mixed
+    structure.
+    """
+    category_slide_count = sum(1 for s in plan.slides if s.category or s.layout == "category_showcase")
+    return plan.explicit_categories[:category_slide_count]
 
 
 def validate_output(plan: DeckPlan, pptx_path: Path, assets: List[ImageAsset]) -> ValidationResult:
@@ -1124,15 +1762,25 @@ def validate_output(plan: DeckPlan, pptx_path: Path, assets: List[ImageAsset]) -
             checks.append(f"图片数量校验通过：{len(assets)} 张")
 
     if pptx_path.exists():
-        text_blob = "\n".join(extract_pptx_texts(pptx_path))
-        missing = []
-        for category in plan.explicit_categories[: max(0, plan.page_count - 1)]:
-            if category and category not in text_blob:
-                missing.append(category)
-        if missing:
-            errors.append("用户指定类目未全部出现在 PPT 中：" + ", ".join(missing))
-        elif plan.explicit_categories:
-            checks.append("用户指定类目校验通过")
+        extracted_texts = extract_pptx_texts(pptx_path)
+        text_blob = "\n".join(extracted_texts)
+
+        # 类目完整性以 deck_plan 为硬校验；PPT 文本抽取只作为辅助校验。
+        # PPT-master 的 SVG→PPTX 过程可能会把长标题拆成多个 text run/换行，
+        # 不能因为 python-pptx 抽取文本不完全就把已生成文件判失败。
+        expected_categories = expected_explicit_categories_for_plan(plan)
+        planned_category_titles = [s.category or s.title for s in plan.slides if s.category or s.layout == "category_showcase"]
+        missing_from_plan = [c for c in expected_categories if not category_present(c, planned_category_titles)]
+        if missing_from_plan:
+            errors.append("用户指定类目未进入生成计划：" + ", ".join(missing_from_plan))
+        elif expected_categories:
+            checks.append("用户指定类目计划校验通过")
+
+        missing_from_extracted_text = [c for c in expected_categories if not category_present(c, extracted_texts + [text_blob])]
+        if missing_from_extracted_text:
+            checks.append("PPT 文本抽取未完整命中部分长类目，已按 deck_plan 放行：" + ", ".join(missing_from_extracted_text))
+        elif expected_categories:
+            checks.append("用户指定类目文本校验通过")
         if plan.language == "en":
             if CJK_RE.search(text_blob):
                 errors.append("语言校验失败：用户要求英文，但 PPT 页面文本中仍包含中文字符。")
@@ -1199,7 +1847,7 @@ def write_run_files(run_dir: Path, plan: DeckPlan, result: GenerationResult, now
         "timezone": os.getenv("PPT_TIMEZONE", DEFAULT_TZ),
         "output_rule": "成功时飞书只回复 windows_path；失败时回复明确错误。",
         "quality_rule": "deck_plan 是唯一事实源；渲染后校验页数、语言、类目、标题、图片数量。",
-        "ppt_master_rule": "安装脚本不会删除或覆盖 workspace 中已有 PPT-master 目录。",
+        "ppt_master_rule": "默认优先使用 workspace/vendor/ppt-master；安装脚本不会删除或覆盖 vendor/ppt-master。",
         "result": asdict(result),
     }
     (run_dir / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -1210,6 +1858,8 @@ def write_run_files(run_dir: Path, plan: DeckPlan, result: GenerationResult, now
         f"语言：{plan.language}\n"
         f"PPT：{result.windows_path}\n"
         f"deck_plan：{plan_path}\n"
+        f"渲染后端：{result.render_backend}\n"
+        f"PPT-master 项目：{result.pptmaster_project_dir}\n"
         f"飞书回复规则：成功只回复 PPT 本地映射路径；失败回复错误。\n",
         encoding="utf-8",
     )
@@ -1235,7 +1885,7 @@ def generate(prompt: str, sender_name: str = "", sender_open_id: str = "", root:
         run_dir.mkdir(parents=True, exist_ok=True)
         plan_path.write_text(json.dumps(plan_to_dict(plan), ensure_ascii=False, indent=2), encoding="utf-8")
         image_assets = prepare_images(plan, run_dir, selected_image_mode)
-        build_presentation(plan, pptx_path, image_assets)
+        render_info = render_presentation(plan, pptx_path, image_assets, run_dir)
         validation = validate_output(plan, pptx_path, image_assets)
         if not validation.ok:
             raise RuntimeError("；".join(validation.errors))
@@ -1252,6 +1902,9 @@ def generate(prompt: str, sender_name: str = "", sender_open_id: str = "", root:
             language=plan.language,
             deck_plan_path=str(plan_path),
             image_mode=selected_image_mode,
+            render_backend=str(render_info.get("backend", "")),
+            pptmaster_project_dir=str(render_info.get("project_dir", "")),
+            pptmaster_log_path=str(render_info.get("log_path", "")),
             image_count=len(image_assets),
             image_assets=[asdict(asset) for asset in image_assets],
             validation=asdict(validation),
@@ -1276,6 +1929,7 @@ def generate(prompt: str, sender_name: str = "", sender_open_id: str = "", root:
             windows_path=windows_path,
             elapsed_seconds=elapsed,
             image_mode=selected_image_mode,
+            render_backend=choose_render_backend() if os.getenv("PPT_RENDER_BACKEND", "auto") else "auto",
             error=str(exc),
         )
 
