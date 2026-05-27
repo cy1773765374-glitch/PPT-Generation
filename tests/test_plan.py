@@ -14,8 +14,11 @@ from generate_catalog_ppt import (  # noqa: E402
     detect_language,
     extract_page_count,
     extract_product_categories,
+    extract_requested_sections,
     generate,
     sanitize_filename,
+    category_present,
+    expected_explicit_categories_for_plan,
 )
 from pptx import Presentation  # noqa: E402
 
@@ -80,6 +83,57 @@ def test_placeholder_generation_exact_10_pages_and_english_text():
         assert result.validation["ok"] is True
 
 
+def test_categories_can_fill_all_pages_without_forced_cover():
+    prompt = "Generate a 3-page minimalist stationery product catalog PPT. Product categories: Notebooks, Pens, Erasers. All text in English."
+    plan = build_deck_plan(prompt)
+    assert plan.page_count == 3
+    assert [s.layout for s in plan.slides] == ["category_showcase", "category_showcase", "category_showcase"]
+    assert [s.title for s in plan.slides] == ["Notebooks", "Pens", "Erasers"]
+    assert plan.style_family == "minimal"
+
+
+def test_unrequested_procurement_fields_are_not_forced():
+    plan = build_deck_plan(SELLERS_UNION_PROMPT)
+    section_titles = [section["title"] for slide in plan.slides for section in slide.sections]
+    assert "Suggested SKUs" not in section_titles
+    assert "Packaging & Sourcing Notes" not in section_titles
+    assert "MOQ Note" not in section_titles
+    assert "Selling Points" not in section_titles
+
+
+def test_negative_field_requirements_are_respected():
+    prompt = "生成5页文具目录册PPT，类目：笔记本，笔，橡皮，尺子，修正带。只要产品方向，不要价格MOQ箱规。"
+    assert extract_requested_sections(prompt) == ["positioning"]
+    cats = extract_product_categories(prompt, "zh")
+    assert cats == ["笔记本", "笔", "橡皮", "尺子", "修正带"]
+    plan = build_deck_plan(prompt)
+    assert len(plan.slides) == 5
+    assert all([section["title"] for section in slide.sections] == ["产品定位"] for slide in plan.slides)
+
+
+def test_explicit_procurement_fields_are_added_only_when_requested():
+    prompt = "生成3页高端文具目录册PPT，类目：笔记本，笔。需要卖点、包装、MOQ、认证。"
+    plan = build_deck_plan(prompt)
+    titles = [section["title"] for slide in plan.slides for section in slide.sections]
+    assert "MOQ 备注" in titles
+    assert "认证信息" in titles
+    assert "包装方式" in titles
+    assert plan.style_family == "luxury"
+
+
+def test_category_match_is_robust_for_wrapped_long_titles():
+    assert category_present("Balloons and Balloon Sets", ["Balloons\n& Balloon Sets"])
+    assert category_present("Disposable Party Tableware", ["Disposable\nParty\nTableware"])
+
+
+def test_expected_categories_uses_actual_category_slide_capacity():
+    plan = build_deck_plan(SELLERS_UNION_PROMPT)
+    expected = expected_explicit_categories_for_plan(plan)
+    assert expected == plan.explicit_categories
+    assert "Balloons and Balloon Sets" in expected
+    assert "Disposable Party Tableware" in expected
+
+
 if __name__ == "__main__":
     test_detailed_english_plan()
     test_extract_categories_does_not_split_balloon_and_sets()
@@ -87,4 +141,10 @@ if __name__ == "__main__":
     test_language_detection()
     test_filename_keeps_normal_english_letters()
     test_placeholder_generation_exact_10_pages_and_english_text()
+    test_categories_can_fill_all_pages_without_forced_cover()
+    test_unrequested_procurement_fields_are_not_forced()
+    test_negative_field_requirements_are_respected()
+    test_explicit_procurement_fields_are_added_only_when_requested()
+    test_category_match_is_robust_for_wrapped_long_titles()
+    test_expected_categories_uses_actual_category_slide_capacity()
     print("ok")

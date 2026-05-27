@@ -14,12 +14,23 @@
 → 每页内容生成
 → 每页图片 brief
 → MiniMax 生图
-→ PPT 渲染
+→ 生成 PPT-master 项目（design_spec.md / spec_lock.md / svg_output）
+→ 优先调用 vendor/ppt-master 导出 native editable PPTX
 → 质量校验
 → 飞书只回复本地路径
 ```
 
 `deck_plan.json` 是唯一事实来源。渲染阶段不得重新决定页数、语言、类目或页面顺序。
+
+## 内容自适应原则
+
+1. 不要把所有 PPT 做成同一套卡片模板。先从用户描述判断：页数、语言、是否需要封面/公司介绍、产品类目、必须字段、禁止字段、视觉风格。
+2. 用户没有点名的字段可以不出现。尤其是价格、MOQ、箱规、认证、交期、包装、SKU 等采购字段，不能为了“看起来完整”而硬塞。
+3. 用户明确否定的字段必须排除，例如“不要价格 MOQ 箱规”“无需认证”“without price”。
+4. 用户明确说“只要产品方向”时，每个类目页只保留产品定位，不追加卖点、包装、MOQ 等。
+5. 类目数量已经覆盖页数时，不强制增加封面；只有用户要求封面、类目不足或没有类目时，才自动补封面。
+6. 公司介绍页只在用户明确要求 `company introduction / 公司介绍 / 企业介绍` 时生成。
+7. 视觉风格必须跟随用户描述变化，例如 minimal、luxury、playful、festive、nature、tech，而不是永远用同一套蓝白商业模板。
 
 ## 详细需求模式
 
@@ -55,7 +66,7 @@ Page 9: COS Costumes
 Page 10: Other Party Decorations
 ```
 
-禁止把详细需求压成 5 页模板。
+禁止把详细需求压成 5 页模板，也禁止给每个类目页重复塞 `Page Brief / Suggested SKUs / Packaging & Sourcing Notes / MOQ / Carton / Certification` 这类用户没有要求的固定字段。
 
 ## 简单需求模式
 
@@ -146,8 +157,20 @@ python scripts/generate_catalog_ppt.py --prompt "$USER_TEXT" --sender-name "$SEN
 python scripts/feishu_reply_formatter.py
 ```
 
-## PPT-master 保留规则
+## PPT-master 规则
 
-安装或更新时必须保留 workspace 里的 `PPT-master/`，不得删除或覆盖。
+生产环境应优先使用完整 PPT-master vendor：
 
-`install_update.sh` 已经排除 `PPT-master/`，不要改成会删除该目录的 `rsync --delete` 方案。
+```text
+/home/cy/.openclaw/workspace-PPT-Generation/vendor/ppt-master/
+```
+
+主入口通过 `PPT_RENDER_BACKEND` 控制渲染：
+
+- `pptmaster`：强制调用 vendor/ppt-master，失败即失败，生产推荐。
+- `auto`：优先 PPT-master，失败降级 python-pptx，本地测试推荐。
+- `python_pptx`：完全不走 PPT-master，仅用于排障。
+
+安装或更新时必须保留 workspace 里的 `vendor/ppt-master/` 和旧兼容目录 `PPT-master/`，不得删除或覆盖。
+
+`install_update.sh` 已经排除 `vendor/ppt-master/` 和 `PPT-master/`，不要改成会删除这两个目录的 `rsync --delete` 方案。

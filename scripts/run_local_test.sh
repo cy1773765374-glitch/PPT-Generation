@@ -2,4 +2,10 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-PPT_IMAGE_MODE=placeholder PPT_REQUIRE_IMAGES=1 python scripts/generate_catalog_ppt.py   --prompt "Generate a 10-page festive party theme product catalog PPT for SELLERS UNION. Page 1: Company introduction for SELLERS UNION - a premier party supplies and festive decorations supplier. Pages 2-10: Each page features one product category with party-related images and English descriptions. Product categories: Balloons and Balloon Sets, Rain Curtains, Candles, Bunting Garlands, Hats, Party Blowers, Disposable Party Tableware, COS Costumes, and other party decorations. All text in English. High-quality commercial product catalog style."   --root "${PPT_CATALOG_ROOT:-/tmp/ppt_catalog_test}"   --json
+PPT_RENDER_BACKEND="${PPT_RENDER_BACKEND:-auto}" \
+PPT_IMAGE_MODE=placeholder \
+PPT_REQUIRE_IMAGES=1 \
+python scripts/generate_catalog_ppt.py \
+  --prompt "Generate a 10-page festive party theme product catalog PPT for SELLERS UNION. Page 1: Company introduction for SELLERS UNION - a premier party supplies and festive decorations supplier. Pages 2-10: Each page features one product category with party-related images and English descriptions. Product categories: Balloons and Balloon Sets, Rain Curtains, Candles, Bunting Garlands, Hats, Party Blowers, Disposable Party Tableware, COS Costumes, and other party decorations. All text in English. High-quality commercial product catalog style." \
+  --root "${PPT_CATALOG_ROOT:-/tmp/ppt_catalog_test}" \
+  --json
